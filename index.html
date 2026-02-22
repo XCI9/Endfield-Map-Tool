@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>終末地地圖合併工具</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+    <link rel="stylesheet" href="src/styles.css">
+    <script>
+        window.onOpenCvReady = function () {
+            if (window.__opencvReady) {
+                window.__opencvReady();
+            } else {
+                window.__opencvPending = true;
+            }
+        };
+    </script>
+    <script defer src="https://unpkg.com/petite-vue@0.4.1/dist/petite-vue.iife.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+    <script defer src="src/app.js"></script>
+    <script async src="https://docs.opencv.org/4.5.4/opencv.js" onload="onOpenCvReady();"></script>
+</head>
+<body>
+    <div id="app" v-scope="App()" @vue:mounted="mounted()">
+        <header class="toolbar">
+            <div class="toolbar-main">
+                <div>
+                    <h3>終末地地圖合併工具</h3>
+                    <p class="status">{{ statusText }}</p>
+                </div>
+                <div class="actions">
+                    <div class="map-switcher">
+                        <button :class="{ active: currentMapKey === 'map01' }" @click="selectMap('map01')" :disabled="isProcessing">四號谷地</button>
+                        <button :class="{ active: currentMapKey === 'map02' }" @click="selectMap('map02')" :disabled="isProcessing">武陵</button>
+                    </div>
+                    <label class="map-select">
+                        <input type="checkbox" v-model="showOriginalBase" @change="onOriginalToggle()">
+                        <span>顯示原地圖</span>
+                    </label>
+                    <button class="primary" @click="openFilePicker" :disabled="isProcessing">選擇截圖</button>
+                    <input ref="subFile" class="hidden" type="file" accept="image/*" @change="onSubFileChange">
+                    <button @click="undoLastAction" :disabled="!canUndo || isProcessing" title="復原上一步截圖">↩️ 復原</button>
+                    <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing">下載完整地圖</button>
+                </div>
+                <div class="hint">也可直接拖曳圖片到下方或按 Ctrl+V 貼上截圖</div>
+            </div>
+            <div class="instructions">
+                <p>說明:</p>
+                <ol>
+                    <li>本工具原理為抓取截圖特徵，並在大地圖尋找最相似的位置急縮放大小來進行定位。</li>
+                    <li>截圖請盡量使用裁剪功能去除四周的 UI 部分，降低識別錯誤機率</li>
+                    <li>如果識別錯誤，可透過復原來取消當前圖片，請嘗試調整區域(例如去除地圖 UI 或邊界區域)再次嘗試</li>
+                    <li>放大倍率越小(顯示範圍越大)，辨識成功率越高</li>
+                </ol>
+            </div>
+        </header>
+
+        <main class="content">
+            <div id="dropZone" class="drop-zone" :class="{ 'is-dragging': isDragging }">
+                <canvas id="baseCanvas" class="offscreen"></canvas>
+                <canvas id="originalBaseCanvas" class="offscreen"></canvas>
+                <canvas id="overlayCanvas" class="offscreen"></canvas>
+                <canvas id="outputCanvas"></canvas>
+                <div class="drop-overlay" v-show="isDragging">放開以匯入截圖</div>
+            </div>
+        </main>
+
+        <div id="previewModal" class="crop-modal" v-show="showPreviewModal">
+            <div class="crop-container preview-modal-container">
+                <div class="preview-header">
+                    <h3>輸出預覽</h3>
+                    <div class="preview-controls">
+                        <label class="map-select">
+                            <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()">
+                            <span>預覽含原地圖</span>
+                        </label>
+                        <button @click="openPreviewCrop" :disabled="!hasOutput">裁切</button>
+                        <button @click="clearPreviewCrop" :disabled="!hasOutput">清除裁切</button>
+                    </div>
+                </div>
+                <div class="crop-hint">四周如有透明部分輸出時會自動裁剪掉，可以不必手動調整</div>
+                <div class="preview-canvas-wrap">
+                    <canvas id="previewCanvas"></canvas>
+                </div>
+                <div class="crop-controls">
+                    <button @click="closePreviewModal">取消</button>
+                    <button class="confirm" @click="downloadImage">確認下載</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="cropModal" class="crop-modal" v-show="showCrop">
+            <div class="crop-container">
+                <h3>裁剪圖片</h3>
+                <div class="crop-status">{{ cropStatus }}</div>
+                <div class="crop-wrapper-outer">
+                    <div class="crop-wrapper">
+                        <img id="cropImage" src="" alt="Crop Preview">
+                    </div>
+                </div>
+                <div class="crop-controls">
+                    <button @click="resetCrop">重設選擇</button>
+                    <button @click="cancelCrop">取消</button>
+                    <button class="confirm" @click="confirmCrop">確認裁剪</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="confirmModal" class="crop-modal" v-show="showConfirmModal">
+            <div class="crop-container confirm-container">
+                <h3>確認切換地圖？</h3>
+                <div class="confirm-content">目前已有處理完成的地圖結果。切換地圖將會遺失目前的進度，是否確認切換？</div>
+                <div class="crop-controls">
+                    <button @click="cancelMapSwitch">取消</button>
+                    <button class="confirm" @click="confirmMapSwitch">確認切換</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
