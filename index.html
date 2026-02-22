@@ -72,7 +72,7 @@
                     <div class="preview-controls">
                         <label class="map-select">
                             <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()">
-                            <span>預覽含原地圖</span>
+                            <span>包含基底地圖</span>
                         </label>
                         <button @click="openPreviewCrop" :disabled="!hasOutput">裁切</button>
                         <button @click="clearPreviewCrop" :disabled="!hasOutput">清除裁切</button>
