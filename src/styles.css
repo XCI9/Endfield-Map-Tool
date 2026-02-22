@@ -146,7 +146,7 @@ body {
 }
 
 .content {
-    padding: 16px 20px 24px;
+    padding: 12px 15px 15px;
     flex: 1;
     min-height: 0;
     display: flex;

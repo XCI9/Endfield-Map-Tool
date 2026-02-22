@@ -804,8 +804,8 @@ function App() {
                 const viewportWidth = window.innerWidth;
                 const viewportHeight = window.innerHeight;
 
-                const nextContentWidth = Math.max(1, viewportWidth - paddingX);
-                const nextContentHeight = Math.max(1, viewportHeight - toolbarHeight - paddingY);
+                const nextContentWidth = Math.max(1, viewportWidth);
+                const nextContentHeight = Math.max(1, viewportHeight - toolbarHeight);
 
                 contentEl.style.width = `${nextContentWidth}px`;
                 contentEl.style.height = `${nextContentHeight}px`;
