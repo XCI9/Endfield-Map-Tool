@@ -59,6 +59,7 @@ function App() {
         previewIncludeBase: true,
         showPreviewModal: false,
         showConfirmModal: false,
+        showInstructions: true,
         pendingMapKey: null,
         history: [], // Stores { canvas: HTMLCanvasElement, rect: {x,y,w,h} }
         canUndo: false,
