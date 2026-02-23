@@ -70,7 +70,12 @@
                 <canvas id="originalBaseCanvas" class="offscreen"></canvas>
                 <canvas id="overlayCanvas" class="offscreen"></canvas>
                 <canvas id="outputCanvas"></canvas>
-                <div class="drop-overlay" v-show="isDragging">放開以匯入截圖</div>
+                
+                <div class="drop-overlay loading-overlay" v-if="isLoadingBaseMap">
+                    <div class="spinner"></div>
+                    <div>基底地圖載入中，請稍後...</div>
+                </div>
+                <div class="drop-overlay" v-else-if="isDragging">放開以匯入截圖</div>
             </div>
         </main>
 

@@ -60,6 +60,7 @@ function App() {
         showPreviewModal: false,
         showConfirmModal: false,
         showInstructions: true,
+        isLoadingBaseMap: false,
         pendingMapKey: null,
         history: [], // Stores { canvas: HTMLCanvasElement, rect: {x,y,w,h} }
         canUndo: false,
@@ -173,6 +174,12 @@ function App() {
         async loadBaseMapFromAsset(mapKey) {
             const mapInfo = MAPS[mapKey] || MAPS.map02;
             this.statusText = `⏳ 載入基底地圖 ${mapInfo.name} 中...`;
+            this.isLoadingBaseMap = true;
+            
+            // Clear current canvas state immediately so user sees loading
+            if (outputCtx && outputCanvas) {
+                outputCtx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+            }
 
             const img = new Image();
             const loadPromise = new Promise((resolve, reject) => {
@@ -188,6 +195,7 @@ function App() {
                 }
             } catch (error) {
                 this.statusText = `❌ 無法載入基底地圖：${mapInfo.name}。請確認 ${mapInfo.file} 是否存在。`;
+                this.isLoadingBaseMap = false;
                 return;
             }
 
@@ -221,6 +229,7 @@ function App() {
             this.renderView();
             this.updatePreview();
             this.statusText = `✅ 基底地圖已載入：${mapInfo.name}，請上傳截圖`;
+            this.isLoadingBaseMap = false;
         },
         async selectMap(key) {
             if (this.isProcessing) return;
