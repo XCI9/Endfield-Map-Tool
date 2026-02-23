@@ -66,6 +66,7 @@ function App() {
         exportBlob: null,   // Stores the generated blob for download
         exportFormat: 'image/webp', // Default format
         exportQuality: 0.95, // Default quality
+        exportCropTransparent: true,
         previewInfo: { width: 0, height: 0, size: '' }, 
         pendingMapKey: null,
         history: [], // Stores { canvas: HTMLCanvasElement, rect: {x,y,w,h} }
@@ -937,25 +938,34 @@ function App() {
 
             let minX = width, minY = height, maxX = 0, maxY = 0;
             let hasPixels = false;
-
-            // Simple loop for bounds
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const alpha = data[(y * width + x) * 4 + 3];
-                    if (alpha > 0) {
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                        hasPixels = true;
+            
+            if (this.exportCropTransparent) {
+                // Find bounds of non-transparent pixels
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const alpha = data[(y * width + x) * 4 + 3];
+                        if (alpha > 0) {
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                            hasPixels = true;
+                        }
                     }
                 }
-            }
 
-            if (!hasPixels) {
-                this.statusText = '❌ 圖片全為透明，無法匯出';
-                this.isExporting = false;
-                return;
+                if (!hasPixels) {
+                    this.statusText = '❌ 圖片全為透明，無法匯出';
+                    this.isExporting = false;
+                    return;
+                }
+            } else {
+                // Full canvas export
+                minX = 0;
+                minY = 0;
+                maxX = width - 1;
+                maxY = height - 1;
+                hasPixels = true;
             }
 
             const finalW = maxX - minX + 1;

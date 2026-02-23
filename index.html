@@ -85,6 +85,10 @@
                 <div class="preview-header">
                     <h3>輸出預覽</h3>
                     <div class="preview-controls">
+                        <div class="map-select">
+                            <input type="checkbox" v-model="exportCropTransparent">
+                            <span>自動裁剪四周透明區域</span>
+                        </div>
                         <label class="map-select">
                             <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()">
                             <span>包含基底地圖</span>
@@ -93,7 +97,6 @@
                         <button @click="clearPreviewCrop" :disabled="!hasOutput || isExporting || exportBlob">清除裁切</button>
                     </div>
                 </div>
-                <div class="crop-hint">四周如有透明部分輸出時會自動裁剪掉，可以不必手動調整</div>
                 <div class="preview-canvas-wrap">
                     <canvas id="previewCanvas"></canvas>
                 </div>
