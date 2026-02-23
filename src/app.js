@@ -42,6 +42,8 @@ const MAPS = {
 
 const yieldToUI = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
+let workers = [];
+
 function App() {
     const state = {
         statusText: '正在初始化... ',
@@ -72,6 +74,7 @@ function App() {
         pendingMapKey: null,
         history: [], // Stores { canvas: HTMLCanvasElement, rect: {x,y,w,h} }
         canUndo: false,
+        
         async onOpenCvReady() {
             await this.loadBaseMapFromAsset(this.currentMapKey);
         },
@@ -83,6 +86,24 @@ function App() {
             }
         },
         init() {
+            // Initialize workers
+            if (window.Worker) {
+                // Clear existing workers if any (though init runs once usually)
+                if (workers.length > 0) {
+                     workers.forEach(w => w.terminate());
+                     workers = []; // reassign global
+                }
+                
+                for (let i = 0; i < 2; i++) {
+                    const worker = new Worker('src/worker.js');
+                    try {
+                        workers.push(worker);
+                    } catch (e) {
+                        console.error('Failed to init worker', e);
+                    }
+                }
+            }
+
             // cropCanvas and cropCtx are replaced by Cropper.js on #cropImage
             outputCanvas = document.getElementById('outputCanvas');
             outputCtx = outputCanvas.getContext('2d');
@@ -391,31 +412,161 @@ function App() {
                 await currentFileCallback(croppedCanvas);
             }
         },
-        async performTemplateMatch(baseImg, templateImg, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix) {
-            // roiCandidates: Array of { x, y, width, height } or null. 
-            // If null, full search. If array, search in each ROI.
-            
-            const searchBase = new cv.Mat();
-            cv.resize(baseImg, searchBase, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_AREA);
 
-            // Normalize roiCandidates to an array of ROIs or [null] for full search
-            let roisWithType = [];
-            if (!roiCandidates || roiCandidates.length === 0) {
-                roisWithType.push({ roi: null, sourceCandidate: null }); // Full search
+        async performTemplateMatch(baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix) {
+            // Resize base once in main thread
+            const searchBase = new cv.Mat();
+            cv.resize(baseMatRef, searchBase, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_AREA);
+            
+            // Prepare scales
+            let scales = [];
+            let s = scaleRange.min;
+            while (s <= scaleRange.max) {
+                 // geometric progression check
+                 const finalS = s * scaleDownRes;
+                 const newWidth = Math.round(templateMatRef.cols * finalS);
+                 const newHeight = Math.round(templateMatRef.rows * finalS);
+                 
+                 // Skip tiny implementations in loop (worker does this too but we can skip adding to list)
+                 if (newWidth >= 20 && newHeight >= 20) {
+                     scales.push(s);
+                 }
+                 
+                 const multiplier = 1 + Math.max(0.01, step);
+                 s = s * multiplier;
+            }
+
+            if (scales.length === 0) {
+                searchBase.delete();
+                return [];
+            }
+            
+            // If no workers or too few scales, run locally (or just one worker)
+            if (workers.length === 0 || scales.length < 2) {
+                // ... fallback local implementation or just run logic here ...
+                console.warn('No workers available, running on main thread');
+                // Use the old logic or adapt worker logic here? 
+                // Let's implement local logic for safety/fallback
+                const results = await this.runMatchLocal(searchBase, templateMatRef, scaleDownRes, roiCandidates, scales);
+                searchBase.delete();
+                return results;
+            }
+
+            // Split scales
+            const chunks = Array.from({ length: workers.length }, () => []);
+            scales.forEach((sc, i) => {
+                chunks[i % workers.length].push(sc);
+            });
+            
+            // Prepare data copying for transfer
+            // We need to copy data because we cannot transfer WASM memory
+            const baseData = new Uint8Array(searchBase.data);
+            const templateData = new Uint8Array(templateMatRef.data);
+            
+            const basePayload = {
+                rows: searchBase.rows,
+                cols: searchBase.cols,
+                type: searchBase.type(),
+                data: baseData
+            };
+            
+            const templatePayload = {
+                rows: templateMatRef.rows,
+                cols: templateMatRef.cols,
+                type: templateMatRef.type(),
+                data: templateData
+            };
+            
+            const promises = workers.map((worker, index) => {
+                return new Promise((resolve, reject) => {
+                    const id = Date.now() + '_' + index;
+                    
+                    const handleMsg = (e) => {
+                        if (e.data.id === id) {
+                            worker.removeEventListener('message', handleMsg);
+                            if (e.data.type === 'result') {
+                                resolve(e.data.results);
+                            } else {
+                                reject(e.data.error);
+                            }
+                        }
+                    };
+                    worker.addEventListener('message', handleMsg);
+                    
+                    // We send copies of data to each worker. 
+                    // To avoid main thread freeze during copy, we already copied to Uint8Array.
+                    // But we can transmit the SAME buffer to multiple workers? 
+                    // No, invalidating buffer if transferred.
+                    // We must clone for the second worker if we transfer the first.
+                    // Or just let structured clone handle it (copy).
+                    // Sending `baseData` (Uint8Array) directly triggers structured clone (copy).
+                    // This is overhead but safe.
+                    
+                    worker.postMessage({
+                        cmd: 'match',
+                        id: id,
+                        payload: {
+                            baseData: basePayload, // This will be cloned
+                            templateData: templatePayload,
+                            scaleDownRes,
+                            roiCandidates,
+                            scaleRange: { min: 0, max: 0 }, // Unused if scales provided
+                            scales: chunks[index],
+                            step
+                        }
+                    });
+                });
+            });
+
+            // Start monitoring progress if needed, but for now just wait
+            this.statusText = `⏳ ${statusPrefix}... (並行運算中)`;
+            
+            try {
+                const resultsArray = await Promise.all(promises);
+                const allResults = resultsArray.flat();
+                
+                searchBase.delete();
+                
+                // Sort
+                allResults.sort((a, b) => b.val - a.val);
+                
+                // Filter unique
+                const uniqueResults = [];
+                for (const res of allResults) {
+                     const isClose = uniqueResults.some(u => 
+                         Math.abs(u.loc.x - res.loc.x) < 10 && 
+                         Math.abs(u.loc.y - res.loc.y) < 10 && 
+                         Math.abs(u.scale - res.scale) < 0.1
+                     );
+                     if (!isClose) {
+                         uniqueResults.push(res);
+                     }
+                     if (uniqueResults.length >= 5) break; 
+                }
+                
+                return uniqueResults;
+            } catch (e) {
+                console.error('Worker error', e);
+                searchBase.delete();
+                return [];
+            }
+        },
+        async runMatchLocal(searchBase, templateImg, scaleDownRes, roiCandidates, scales) {
+            // Fallback implementation on main thread
+            // Similar to worker logic
+            const roisWithType = [];
+             if (!roiCandidates || roiCandidates.length === 0) {
+                roisWithType.push({ rect: null }); 
             } else {
                 for (const cand of roiCandidates) {
-                    // Calculate constraints
                     const roiX = Math.max(0, Math.round(cand.x));
                     const roiY = Math.max(0, Math.round(cand.y));
                     const roiW = Math.min(searchBase.cols - roiX, Math.round(cand.width));
                     const roiH = Math.min(searchBase.rows - roiY, Math.round(cand.height));
                     
                     if (roiW > 0 && roiH > 0) {
-                         // We need to create actual ROI Mat later or just store rect data
-                         // Storing rect data is safer to avoid memory leaks if we don't delete properly
                          roisWithType.push({ 
-                             rect: new cv.Rect(roiX, roiY, roiW, roiH), 
-                             sourceCandidate: cand 
+                             rect: new cv.Rect(roiX, roiY, roiW, roiH)
                          });
                     }
                 }
@@ -423,29 +574,14 @@ function App() {
 
             let allResults = [];
             
-            // let index = 0; // Removed index, use loop count or time for status text updates
-
-            let s = scaleRange.min;
-            let loopCount = 0;
-
-            while (s <= scaleRange.max) {
-                 // Calculate scaled size
+            for (const s of scales) {
                 const finalS = s * scaleDownRes;
                 const newWidth = Math.round(templateImg.cols * finalS);
                 const newHeight = Math.round(templateImg.rows * finalS);
 
-                // Small size check to avoid false positives with tiny templates
-                if (newWidth < 20 || newHeight < 20) {
-                     // Geometric progression for next step
-                     const multiplier = 1 + Math.max(0.01, step);
-                     s = s * multiplier;
-                     continue;
-                }
-
                 const resizedSub = new cv.Mat();
                 cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
 
-                // Iterate through all ROIs (usually 1 full search, or N refined searches)
                 for (const roiInfo of roisWithType) {
                     let searchRoiMat;
                     let roiOffsetX = 0;
@@ -456,7 +592,7 @@ function App() {
                         roiOffsetX = roiInfo.rect.x;
                         roiOffsetY = roiInfo.rect.y;
                     } else {
-                        searchRoiMat = searchBase; // Direct reference (don't delete if it's searchBase)
+                        searchRoiMat = searchBase;
                     }
 
                     if (resizedSub.cols <= searchRoiMat.cols && resizedSub.rows <= searchRoiMat.rows) {
@@ -464,61 +600,26 @@ function App() {
                         cv.matchTemplate(searchRoiMat, resizedSub, res, cv.TM_CCOEFF_NORMED);
                         const minMax = cv.minMaxLoc(res);
 
-                        // Store this result
                         allResults.push({
                             val: minMax.maxVal,
                             loc: {
                                 x: minMax.maxLoc.x + roiOffsetX,
                                 y: minMax.maxLoc.y + roiOffsetY
                             },
-                            scale: s,
-                            // If this search came from a previous candidate, we might want to track it, 
-                            // but for now we just treat every scale/roi combo as a new candidate.
+                            scale: s
                         });
                         
                         res.delete();
                     }
-                    
                     if (roiInfo.rect) {
-                         searchRoiMat.delete(); // Delete the ROI Mat
+                         searchRoiMat.delete();
                     }
                 }
-                
                 resizedSub.delete();
-
-                loopCount++;
-                if (loopCount % 5 === 0) {
-                    this.statusText = `⏳ ${statusPrefix}... 比例: ${s.toFixed(2)}`;
-                    await yieldToUI();
-                }
-                
-                // Geometric progression: scale multiplies instead of adds
-                const multiplier = 1 + Math.max(0.01, step);
-                s = s * multiplier;
             }
-
-            searchBase.delete();
-
-            // Sort by value descending and return unique/top results
-            // Filter out overlapping results if needed? 
-            // For now, just simple sort.
-            allResults.sort((a, b) => b.val - a.val);
-
-            // Optional: Filter duplicates (very close positions and scales) to avoid top 5 being almost identical
-            const uniqueResults = [];
-            for (const res of allResults) {
-                 const isClose = uniqueResults.some(u => 
-                     Math.abs(u.loc.x - res.loc.x) < 10 && 
-                     Math.abs(u.loc.y - res.loc.y) < 10 && 
-                     Math.abs(u.scale - res.scale) < 0.1
-                 );
-                 if (!isClose) {
-                     uniqueResults.push(res);
-                 }
-                 if (uniqueResults.length >= 5) break; // Keep top 5 unique candidates
-            }
-
-            return uniqueResults;
+            // Cleanup rects if any? (JS objects)
+            
+            return allResults;
         },
         async processScreenshotAfterCrop(canvas) {
             if (this.isProcessing) return;
