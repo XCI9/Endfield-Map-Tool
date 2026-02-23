@@ -29,17 +29,17 @@
                 </div>
                 <div class="actions">
                     <div class="map-switcher">
-                        <button :class="{ active: currentMapKey === 'map01' }" @click="selectMap('map01')" :disabled="isProcessing">四號谷地</button>
-                        <button :class="{ active: currentMapKey === 'map02' }" @click="selectMap('map02')" :disabled="isProcessing">武陵</button>
+                        <button :class="{ active: currentMapKey === 'map01' }" @click="selectMap('map01')" :disabled="isProcessing || isLoadingBaseMap">四號谷地</button>
+                        <button :class="{ active: currentMapKey === 'map02' }" @click="selectMap('map02')" :disabled="isProcessing || isLoadingBaseMap">武陵</button>
                     </div>
                     <label class="map-select">
-                        <input type="checkbox" v-model="showOriginalBase" @change="onOriginalToggle()">
+                        <input type="checkbox" v-model="showOriginalBase" @change="onOriginalToggle()" :disabled="isLoadingBaseMap">
                         <span>顯示原地圖</span>
                     </label>
-                    <button class="primary" @click="openFilePicker" :disabled="isProcessing">選擇截圖</button>
+                    <button class="primary" @click="openFilePicker" :disabled="isProcessing || isLoadingBaseMap">選擇截圖</button>
                     <input ref="subFile" class="hidden" type="file" accept="image/*" @change="onSubFileChange">
-                    <button @click="undoLastAction" :disabled="!canUndo || isProcessing" title="復原上一步截圖">↩️ 復原</button>
-                    <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing">下載完整地圖</button>
+                    <button @click="undoLastAction" :disabled="!canUndo || isProcessing || isLoadingBaseMap" title="復原上一步截圖">↩️ 復原</button>
+                    <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap">下載完整地圖</button>
                 </div>
                 <div class="hint">也可直接拖曳圖片到下方或按 Ctrl+V 貼上截圖</div>
                 <div class="status-row">
