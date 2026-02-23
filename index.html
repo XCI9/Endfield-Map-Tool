@@ -50,13 +50,12 @@
         
         <div class="instructions" :class="{ collapsed: !showInstructions }">
             <div class="instructions-header" @click="showInstructions = !showInstructions">
-                <span class="icon">ℹ️</span>
                 <span>使用說明</span>
                 <span class="toggle-icon">{{ showInstructions ? '▼' : '◀' }}</span>
             </div>
             <div class="instructions-content" v-show="showInstructions">
                 <ol>
-                    <li>本工具原理為抓取截圖特徵，並在大地圖尋找最相似的位置急縮放大小來進行定位。</li>
+                    <li>本工具原理為抓取截圖特徵，並在大地圖尋找最相似的位置及縮放大小來進行定位。</li>
                     <li>截圖請盡量使用裁剪功能去除四周的 UI 部分，降低識別錯誤機率</li>
                     <li>如果識別錯誤，可透過復原來取消當前圖片，請嘗試調整區域(例如去除地圖 UI 或邊界區域)再次嘗試</li>
                     <li>放大倍率越小(顯示範圍越大)，辨識成功率越高</li>
