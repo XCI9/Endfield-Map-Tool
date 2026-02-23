@@ -468,6 +468,84 @@ body {
     margin-top: 8px;
 }
 
+.update-log {
+    margin-top: 20px;
+    padding-top: 5px;
+    border-top: 1px solid var(--panel-border);
+}
+
+.log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    padding: 8px; /* Slightly more padding */
+    margin: -8px; /* Negative margin to expand clickable area */
+    margin-bottom: 5px;
+    border-radius: 4px;
+}
+
+.log-header:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.log-content {
+    margin-top: 10px;
+    padding-left: 5px;
+}
+
+
+.log-header h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.toggle-icon {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.log-content ul {
+    margin: 0;
+    padding-left: 0;
+    list-style: none;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.log-content > ul > li {
+    margin-bottom: 12px;
+    position: relative;
+    padding-left: 10px;
+}
+
+/* Version Header */
+.update-log .version {
+    display: inline-block;
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.85rem;
+    background: var(--accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+
+/* Sub-list items */
+.log-content ul ul {
+    list-style: disc;
+    padding-left: 20px;
+    margin-top: 4px;
+}
+
+.log-content ul ul li {
+    margin-bottom: 4px;
+    padding-left: 0;
+}
+
 .crop-hint {
     color: var(--muted);
     font-size: 0.9rem;

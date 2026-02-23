@@ -60,6 +60,7 @@ function App() {
         showPreviewModal: false,
         showConfirmModal: false,
         showInstructions: true,
+        showUpdateLog: false,
         isLoadingBaseMap: false,
         isExporting: false, // UI disabling state for export
         exportProgress: 0, 

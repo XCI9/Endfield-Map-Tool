@@ -80,6 +80,33 @@
                     <li>如果識別錯誤，可透過復原來取消當前圖片，請嘗試調整區域(例如去除地圖 UI 或邊界區域)再次嘗試</li>
                     <li>放大倍率越小(顯示範圍越大)，辨識成功率越高</li>
                 </ol>
+                
+                <div class="update-log" :class="{ collapsed: !showUpdateLog }">
+                    <div class="log-header" @click="showUpdateLog = !showUpdateLog">
+                        <h4>更新日誌</h4>
+                        <span class="toggle-icon">{{ showUpdateLog ? '▼' : '◀' }}</span>
+                    </div>
+                    <div class="log-content" v-show="showUpdateLog">
+                        <ul>
+                            <li>
+                                <span class="version">v1.1.0</span>
+                                <ul>
+                                    <li>新增 webp 匯出格式</li>
+                                    <li>新增匯出大小預覽</li>
+                                    <li>優化 UI 體驗</li>
+                                    <li>改善辨識準確率</li>
+                                </ul>
+                            </li>
+                            <li>
+                                <span class="version">v1.0.0</span>
+                                <ul>
+                                    <li>新增四號谷地與武陵地圖切換功能。</li>
+                                    <li>基本截圖上傳與拼接功能。</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </div>
 
