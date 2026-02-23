@@ -61,6 +61,10 @@ function App() {
         showConfirmModal: false,
         showInstructions: true,
         isLoadingBaseMap: false,
+        isExporting: false, // UI disabling state for export
+        exportProgress: 0, 
+        exportBlob: null,   // Stores the generated blob for download
+        previewInfo: { width: 0, height: 0, size: '' }, 
         pendingMapKey: null,
         history: [], // Stores { canvas: HTMLCanvasElement, rect: {x,y,w,h} }
         canUndo: false,
@@ -876,10 +880,14 @@ function App() {
             overlayCtx.drawImage(tempCanvas, rect.x, rect.y, rect.width, rect.height);
             hasOverlay = true;
         },
-        updatePreview() {
+        async updatePreview() {
             if (!previewCanvas || !previewCtx) return;
             const sourceCanvas = this.previewIncludeBase ? baseCanvas : overlayCanvas;
             if (!sourceCanvas) return;
+
+            // reset export state
+            if (this.exportBlob) this.exportBlob = null;
+            this.previewInfo = { width: 0, height: 0, size: '' };
 
             if (previewCropRect) {
                 previewCanvas.width = previewCropRect.width;
@@ -896,16 +904,136 @@ function App() {
                     previewCropRect.width,
                     previewCropRect.height
                 );
+            } else {
+                previewCanvas.width = sourceCanvas.width;
+                previewCanvas.height = sourceCanvas.height;
+                previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                previewCtx.drawImage(sourceCanvas, 0, 0);
+            }
+        },
+        async startExportProcess() {
+            if (this.isExporting) return;
+            const sourceCanvas = previewCanvas;
+            if (!sourceCanvas) return;
+
+            // Clear previous export data
+            if (this.exportBlob) {
+                URL.revokeObjectURL(this.exportBlob); 
+                this.exportBlob = null;
+            }
+
+            this.isExporting = true;
+            this.exportProgress = 0;
+            this.statusText = '📦 準備匯出中...';
+            
+            await yieldToUI();
+            const ctx = sourceCanvas.getContext('2d');
+            const width = sourceCanvas.width;
+            const height = sourceCanvas.height;
+            const imageData = ctx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+
+            let minX = width, minY = height, maxX = 0, maxY = 0;
+            let hasPixels = false;
+
+            // Simple loop for bounds
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const alpha = data[(y * width + x) * 4 + 3];
+                    if (alpha > 0) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                        hasPixels = true;
+                    }
+                }
+            }
+
+            if (!hasPixels) {
+                this.statusText = '❌ 圖片全為透明，無法匯出';
+                this.isExporting = false;
                 return;
             }
 
-            previewCanvas.width = sourceCanvas.width;
-            previewCanvas.height = sourceCanvas.height;
-            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-            previewCtx.drawImage(sourceCanvas, 0, 0);
+            const finalW = maxX - minX + 1;
+            const finalH = maxY - minY + 1;
+            
+            this.exportProgress = 30; 
+            this.statusText = '✂️ 正在裁切圖片...';
+            await yieldToUI();
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = finalW;
+            tempCanvas.height = finalH;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(sourceCanvas, minX, minY, finalW, finalH, 0, 0, finalW, finalH);
+            
+            this.exportProgress = 50;
+            this.statusText = '💾 正在壓縮圖片 (WebP)...';
+            await yieldToUI();
+
+            // Simulate progress during the blocking/async toBlob call
+            const progressInterval = setInterval(() => {
+                if (this.exportProgress < 95) {
+                    // Random small increment
+                    const inc = Math.random() * 2;
+                    let nextP = Math.min(95, this.exportProgress + inc);
+                    this.exportProgress = parseFloat(nextP.toFixed(2));
+                }
+            }, 100);
+
+            try {
+                const blob = await new Promise((resolve) => {
+                   tempCanvas.toBlob(resolve, 'image/webp', 0.9);
+                });
+
+                clearInterval(progressInterval);
+                this.exportProgress = 100;
+                this.exportBlob = blob;
+                
+                const sizeMB = blob.size / (1024 * 1024);
+                const sizeKB = blob.size / 1024;
+                let sizeStr = sizeMB >= 1 ? `${sizeMB.toFixed(2)} MB` : `${Math.round(sizeKB)} KB`;
+                
+                this.previewInfo = {
+                    width: finalW,
+                    height: finalH,
+                    size: sizeStr
+                };
+                this.statusText = '✅ 匯出完成，準備下載';
+            } catch (e) {
+                clearInterval(progressInterval);
+                this.statusText = '❌ 匯出失敗: ' + e.message;
+            } finally {
+                // Keep isExporting true to show the progress/result UI, or toggle based on how UI is structured.
+                // In index.html: <div class="export-ui" v-if="isExporting || exportBlob">
+                // So if we set isExporting false, but exportBlob is true, the UI stays visible.
+                // This allows the "progress bar" part to disappear if we want, or stay.
+                // Looking at index.html: <div class="export-status" v-if="isExporting">
+                // So setting isExporting = false will hide the progress bar.
+                // We probably want to keep it false so the "result" part shows up more cleanly, or keep true until closed.
+                // Let's set it to false so the loading bar goes away and we see the result actions clearly.
+                this.isExporting = false;
+            }
+        },
+        downloadExportedBlob() {
+            if (!this.exportBlob) return;
+            const url = URL.createObjectURL(this.exportBlob);
+            const link = document.createElement('a');
+            link.download = `full_map_export_${Date.now()}.webp`;
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+            this.showPreviewModal = false;
         },
         async openPreviewCrop() {
             if (!previewCanvas) return;
+            // Clear export result if re-cropping
+            if (this.exportBlob) {
+                 this.exportBlob = null;
+                 this.previewInfo = { width: 0, height: 0, size: '' };
+            }
             cropMode = 'preview';
 
             // Convert previewCanvas to blob url

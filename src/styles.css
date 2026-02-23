@@ -494,3 +494,106 @@ body {
     }
 }
 
+/* Export UI */
+.export-ui {
+    background: #252525;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+}
+
+.export-status {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.export-status .status-text {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.export-status .progress-track {
+    background: rgba(0, 0, 0, 0.4);
+    height: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+}
+
+.export-status .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.export-status .progress-text {
+    align-self: flex-end;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.export-result {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+}
+
+.file-info .icon {
+    font-size: 1.5rem;
+}
+
+.file-info span {
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.file-info .badge {
+    margin-left: auto;
+    background: var(--success);
+    color: #000;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.result-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 5px;
+}
+
+.result-actions button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    background: #3a3a3a;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.result-actions button:hover {
+    background: #4a4a4a;
+}
+
+.result-actions .confirm {
+    background: var(--success);
+    color: #fff;
+}
+

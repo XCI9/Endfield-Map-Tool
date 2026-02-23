@@ -96,9 +96,33 @@
                 <div class="preview-canvas-wrap">
                     <canvas id="previewCanvas"></canvas>
                 </div>
-                <div class="crop-controls">
+                <div class="crop-controls" v-if="!isExporting && !exportBlob">
                     <button @click="closePreviewModal">取消</button>
-                    <button class="confirm" @click="downloadImage">確認下載</button>
+                    <button class="confirm" @click="startExportProcess">開始匯出</button>
+                </div>
+
+                <!-- Export Progress/Result Area -->
+                <div class="export-ui" v-if="isExporting || exportBlob">
+                    <div class="export-status" v-if="isExporting">
+                         <span class="status-text">{{ statusText }}</span>
+                         <div class="progress-track">
+                             <div class="progress-fill" :style="{ width: exportProgress + '%' }"></div>
+                         </div>
+                         <span class="progress-text">{{ exportProgress }}%</span>
+                    </div>
+                    
+                    <div class="export-result" v-if="exportBlob">
+                        <div class="file-info">
+                            <span class="icon">📄</span>
+                            <span>{{ previewInfo.width }} x {{ previewInfo.height }}</span>
+                            <span class="badge">{{ previewInfo.size }}</span>
+                        </div>
+                        <div class="result-actions">
+                             <button class="confirm" @click="downloadExportedBlob">下載檔案</button>
+                             <button @click="exportBlob = null; statusText = ''">重新匯出</button>
+                             <button @click="closePreviewModal">關閉</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
