@@ -64,6 +64,8 @@ function App() {
         isExporting: false, // UI disabling state for export
         exportProgress: 0, 
         exportBlob: null,   // Stores the generated blob for download
+        exportFormat: 'image/webp', // Default format
+        exportQuality: 0.95, // Default quality
         previewInfo: { width: 0, height: 0, size: '' }, 
         pendingMapKey: null,
         history: [], // Stores { canvas: HTMLCanvasElement, rect: {x,y,w,h} }
@@ -970,25 +972,29 @@ function App() {
             tempCtx.drawImage(sourceCanvas, minX, minY, finalW, finalH, 0, 0, finalW, finalH);
             
             this.exportProgress = 50;
-            this.statusText = '💾 正在壓縮圖片 (WebP)...';
+            const formatName = this.exportFormat === 'image/webp' ? 'WebP' : 'PNG';
+            this.statusText = `💾 正在壓縮圖片 (${formatName})...`;
             await yieldToUI();
 
             // Simulate progress during the blocking/async toBlob call
             const progressInterval = setInterval(() => {
-                if (this.exportProgress < 95) {
+                if (this.exportProgress < 99) {
                     // Random small increment
-                    const inc = Math.random() * 2;
-                    let nextP = Math.min(95, this.exportProgress + inc);
+                    const inc = Math.random();
+                    let nextP = Math.min(99, this.exportProgress + inc);
                     this.exportProgress = parseFloat(nextP.toFixed(2));
                 }
             }, 100);
 
             try {
                 const blob = await new Promise((resolve) => {
-                   tempCanvas.toBlob(resolve, 'image/webp', 0.9);
+                   const quality = this.exportFormat === 'image/webp' ? parseFloat(this.exportQuality) : undefined;
+                   tempCanvas.toBlob(resolve, this.exportFormat, quality);
                 });
 
                 clearInterval(progressInterval);
+                if (!blob) throw new Error('Blob creation failed');
+
                 this.exportProgress = 100;
                 this.exportBlob = blob;
                 
@@ -1021,7 +1027,8 @@ function App() {
             if (!this.exportBlob) return;
             const url = URL.createObjectURL(this.exportBlob);
             const link = document.createElement('a');
-            link.download = `full_map_export_${Date.now()}.webp`;
+            const ext = this.exportFormat === 'image/webp' ? 'webp' : 'png';
+            link.download = `full_map_export_${Date.now()}.${ext}`;
             link.href = url;
             link.click();
             URL.revokeObjectURL(url);

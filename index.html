@@ -81,6 +81,7 @@
 
         <div id="previewModal" class="crop-modal" v-show="showPreviewModal">
             <div class="crop-container preview-modal-container">
+                <button class="top-close-btn" @click="closePreviewModal" title="關閉" :disabled="isExporting">✖</button>
                 <div class="preview-header">
                     <h3>輸出預覽</h3>
                     <div class="preview-controls">
@@ -88,17 +89,35 @@
                             <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()">
                             <span>包含基底地圖</span>
                         </label>
-                        <button @click="openPreviewCrop" :disabled="!hasOutput">裁切</button>
-                        <button @click="clearPreviewCrop" :disabled="!hasOutput">清除裁切</button>
+                        <button @click="openPreviewCrop" :disabled="!hasOutput || isExporting || exportBlob">裁切</button>
+                        <button @click="clearPreviewCrop" :disabled="!hasOutput || isExporting || exportBlob">清除裁切</button>
                     </div>
                 </div>
                 <div class="crop-hint">四周如有透明部分輸出時會自動裁剪掉，可以不必手動調整</div>
                 <div class="preview-canvas-wrap">
                     <canvas id="previewCanvas"></canvas>
                 </div>
-                <div class="crop-controls" v-if="!isExporting && !exportBlob">
-                    <button @click="closePreviewModal">取消</button>
-                    <button class="confirm" @click="startExportProcess">開始匯出</button>
+
+                <div class="crop-controls export-bar" v-if="!isExporting && !exportBlob">
+                    <div class="export-options-group">
+                        <div class="format-switcher">
+                            <button :class="{ active: exportFormat === 'image/webp' }" @click="exportFormat = 'image/webp'">WebP</button>
+                            <button :class="{ active: exportFormat === 'image/png' }" @click="exportFormat = 'image/png'">PNG</button>
+                        </div>
+                        <div class="quality-slider" v-if="exportFormat === 'image/webp'">
+                            <span class="label">品質 {{ Math.round(exportQuality * 100) }}%</span>
+                            <input type="range" v-model="exportQuality" min="0.5" max="1" step="0.01">
+                        </div>
+                        <div class="format-hint">
+                            <span v-if="exportFormat === 'image/png'" class="hint-text">說明：無損格式，檔案較大</span>
+                            <span v-if="exportFormat === 'image/webp'" class="hint-text">說明：有損格式，調整品質可控制大小，方便上傳 Discord</span>
+                        </div>
+                    </div>
+                    <div class="right-group">
+                        <div class="main-actions">
+                            <button class="confirm" @click="startExportProcess">開始匯出</button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Export Progress/Result Area -->
@@ -112,15 +131,16 @@
                     </div>
                     
                     <div class="export-result" v-if="exportBlob">
-                        <div class="file-info">
-                            <span class="icon">📄</span>
-                            <span>{{ previewInfo.width }} x {{ previewInfo.height }}</span>
-                            <span class="badge">{{ previewInfo.size }}</span>
-                        </div>
                         <div class="result-actions">
-                             <button class="confirm" @click="downloadExportedBlob">下載檔案</button>
-                             <button @click="exportBlob = null; statusText = ''">重新匯出</button>
-                             <button @click="closePreviewModal">關閉</button>
+                             <div class="result-file-info">
+                                <span class="badge">{{ previewInfo.size }}</span>
+                                <span class="format-badge">{{ exportBlob.type.split('/')[1].toUpperCase() }}</span>
+                                <span class="dim-info">{{ previewInfo.width }} x {{ previewInfo.height }}</span>
+                             </div>
+                             <div class="action-buttons">
+                                <button class="confirm" @click="downloadExportedBlob">下載檔案</button>
+                                <button @click="exportBlob = null; statusText = ''">重新匯出</button>
+                             </div>
                         </div>
                     </div>
                 </div>

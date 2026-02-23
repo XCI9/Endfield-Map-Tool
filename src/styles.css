@@ -158,6 +158,34 @@ body {
     max-height: 90vh;
     display: flex;
     flex-direction: column;
+    position: relative; /* Context for absolute positioning of close button */
+    padding-top: 40px; /* Make space for close button */
+    overflow: hidden; /* Prevent body scroll, use internal scroll */
+}
+
+/* Close button on top-right */
+.top-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+    z-index: 10;
+    transition: color 0.2s;
+    padding: 0;
+}
+
+.top-close-btn:hover {
+    color: var(--text);
+}
+
+.top-close-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.3;
 }
 
 .preview-header {
@@ -174,6 +202,7 @@ body {
 }
 
 .preview-controls {
+    padding-right: 20px;
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
@@ -201,7 +230,7 @@ body {
     background: #0f0f0f;
     overflow: auto;
     flex: 1;
-    min-height: 0;
+    min-height: 100px; /* Ensure at least some canvas visible */
 }
 
 .preview-canvas-wrap canvas {
@@ -495,6 +524,137 @@ body {
 }
 
 /* Export UI */
+.export-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    background: #1f1f1f;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+    margin-top: 15px;
+}
+
+.export-options-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    flex: 1; /* Allow it to grow */
+}
+
+/* Base styles for buttons in export bar */
+.export-bar button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    background: #3a3a3a;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+/* Specific styles for format switcher buttons to override general buttons */
+.format-switcher {
+    display: flex;
+    background: #2b2b2b;
+    border-radius: 6px;
+    padding: 2px;
+    border: 1px solid var(--panel-border);
+}
+
+.format-switcher button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    margin: 0 !important;
+}
+
+.format-switcher button.active {
+    background: var(--accent);
+    color: white;
+    font-weight: 500;
+}
+
+.quality-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(43, 43, 43, 0.6);
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--panel-border);
+}
+
+.quality-slider .label {
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-width: 60px;
+}
+
+.quality-slider input[type="range"] {
+    width: 80px;
+    height: 4px;
+    accent-color: var(--accent);
+}
+
+.format-hint {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-left: 10px;
+    align-self: center;
+}
+
+.hint-text {
+    display: inline-block;
+}
+
+@media(max-width: 600px) {
+    .export-options-group {
+        flex-direction: column;
+        align-items: flex-start;
+        width: 100%;
+    }
+    .format-hint {
+        margin-left: 0;
+        margin-top: 5px;
+    }
+}
+
+.right-group {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    gap: 15px;
+}
+
+.main-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Ensure buttons in main-actions look right */
+.main-actions button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    background: #3a3a3a;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.main-actions .confirm {
+    background: var(--success);
+}
+
 .export-ui {
     background: #252525;
     border: 1px solid var(--panel-border);
@@ -542,43 +702,57 @@ body {
     gap: 12px;
 }
 
-.file-info {
+.result-actions {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 12px;
-    background: rgba(255, 255, 255, 0.05);
+    flex-wrap: wrap;
+    gap: 15px;
+    background: #1f1f1f;
     padding: 12px;
     border-radius: 8px;
     border: 1px solid var(--panel-border);
 }
 
-.file-info .icon {
-    font-size: 1.5rem;
-}
-
-.file-info span {
+.result-file-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     color: var(--text);
-    font-size: 0.95rem;
+    font-weight: 500;
 }
 
-.file-info .badge {
-    margin-left: auto;
-    background: var(--success);
-    color: #000;
+.result-file-info .badge {
+    background: var(--accent);
+    color: white;
     padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 0.85rem;
-    font-weight: 700;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
 }
 
-.result-actions {
+.result-file-info .format-badge {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--panel-border);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.result-file-info .dim-info {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-left: 5px;
+}
+
+.action-buttons {
     display: flex;
     gap: 10px;
-    justify-content: flex-end;
-    margin-top: 5px;
+    flex-wrap: wrap;
 }
 
-.result-actions button {
+.action-buttons button {
     padding: 8px 16px;
     border-radius: 6px;
     border: none;
@@ -588,7 +762,7 @@ body {
     transition: background 0.2s;
 }
 
-.result-actions button:hover {
+.action-buttons button:hover {
     background: #4a4a4a;
 }
 
