@@ -372,25 +372,38 @@ function App() {
                 await currentFileCallback(croppedCanvas);
             }
         },
-        async performTemplateMatch(baseImg, templateImg, scaleDownRes, roi, scaleRange, step, statusPrefix) {
+        async performTemplateMatch(baseImg, templateImg, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix) {
+            // roiCandidates: Array of { x, y, width, height } or null. 
+            // If null, full search. If array, search in each ROI.
+            
             const searchBase = new cv.Mat();
             cv.resize(baseImg, searchBase, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_AREA);
 
-            let searchRoi = searchBase;
-            let roiX = 0;
-            let roiY = 0;
-
-            if (roi) {
-                roiX = Math.max(0, Math.round(roi.x));
-                roiY = Math.max(0, Math.round(roi.y));
-                const roiW = Math.min(searchBase.cols - roiX, Math.round(roi.width));
-                const roiH = Math.min(searchBase.rows - roiY, Math.round(roi.height));
-                searchRoi = searchBase.roi(new cv.Rect(roiX, roiY, roiW, roiH));
+            // Normalize roiCandidates to an array of ROIs or [null] for full search
+            let roisWithType = [];
+            if (!roiCandidates || roiCandidates.length === 0) {
+                roisWithType.push({ roi: null, sourceCandidate: null }); // Full search
+            } else {
+                for (const cand of roiCandidates) {
+                    // Calculate constraints
+                    const roiX = Math.max(0, Math.round(cand.x));
+                    const roiY = Math.max(0, Math.round(cand.y));
+                    const roiW = Math.min(searchBase.cols - roiX, Math.round(cand.width));
+                    const roiH = Math.min(searchBase.rows - roiY, Math.round(cand.height));
+                    
+                    if (roiW > 0 && roiH > 0) {
+                         // We need to create actual ROI Mat later or just store rect data
+                         // Storing rect data is safer to avoid memory leaks if we don't delete properly
+                         roisWithType.push({ 
+                             rect: new cv.Rect(roiX, roiY, roiW, roiH), 
+                             sourceCandidate: cand 
+                         });
+                    }
+                }
             }
 
-            let bestVal = -1;
-            let bestLoc = null;
-            let bestScale = 1;
+            let allResults = [];
+            
             // let index = 0; // Removed index, use loop count or time for status text updates
 
             let s = scaleRange.min;
@@ -404,28 +417,54 @@ function App() {
 
                 // Small size check to avoid false positives with tiny templates
                 if (newWidth < 20 || newHeight < 20) {
-                     s = s * (1 + step); // Geometric progression for next step
+                     // Geometric progression for next step
+                     const multiplier = 1 + Math.max(0.01, step);
+                     s = s * multiplier;
                      continue;
                 }
 
                 const resizedSub = new cv.Mat();
                 cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
 
-                if (resizedSub.cols <= searchRoi.cols && resizedSub.rows <= searchRoi.rows) {
-                    const res = new cv.Mat();
-                    cv.matchTemplate(searchRoi, resizedSub, res, cv.TM_CCOEFF_NORMED);
-                    const minMax = cv.minMaxLoc(res);
+                // Iterate through all ROIs (usually 1 full search, or N refined searches)
+                for (const roiInfo of roisWithType) {
+                    let searchRoiMat;
+                    let roiOffsetX = 0;
+                    let roiOffsetY = 0;
 
-                    if (minMax.maxVal > bestVal) {
-                        bestVal = minMax.maxVal;
-                        bestLoc = {
-                            x: minMax.maxLoc.x + roiX,
-                            y: minMax.maxLoc.y + roiY
-                        };
-                        bestScale = s;
+                    if (roiInfo.rect) {
+                        searchRoiMat = searchBase.roi(roiInfo.rect);
+                        roiOffsetX = roiInfo.rect.x;
+                        roiOffsetY = roiInfo.rect.y;
+                    } else {
+                        searchRoiMat = searchBase; // Direct reference (don't delete if it's searchBase)
                     }
-                    res.delete();
+
+                    if (resizedSub.cols <= searchRoiMat.cols && resizedSub.rows <= searchRoiMat.rows) {
+                        const res = new cv.Mat();
+                        cv.matchTemplate(searchRoiMat, resizedSub, res, cv.TM_CCOEFF_NORMED);
+                        const minMax = cv.minMaxLoc(res);
+
+                        // Store this result
+                        allResults.push({
+                            val: minMax.maxVal,
+                            loc: {
+                                x: minMax.maxLoc.x + roiOffsetX,
+                                y: minMax.maxLoc.y + roiOffsetY
+                            },
+                            scale: s,
+                            // If this search came from a previous candidate, we might want to track it, 
+                            // but for now we just treat every scale/roi combo as a new candidate.
+                        });
+                        
+                        res.delete();
+                    }
+                    
+                    if (roiInfo.rect) {
+                         searchRoiMat.delete(); // Delete the ROI Mat
+                    }
                 }
+                
                 resizedSub.delete();
 
                 loopCount++;
@@ -435,17 +474,32 @@ function App() {
                 }
                 
                 // Geometric progression: scale multiplies instead of adds
-                // Ensure we don't get stuck if step is 0 (though it shouldn't be)
                 const multiplier = 1 + Math.max(0.01, step);
                 s = s * multiplier;
             }
 
-            if (roi) {
-                searchRoi.delete();
-            }
             searchBase.delete();
 
-            return { bestVal, bestLoc, bestScale };
+            // Sort by value descending and return unique/top results
+            // Filter out overlapping results if needed? 
+            // For now, just simple sort.
+            allResults.sort((a, b) => b.val - a.val);
+
+            // Optional: Filter duplicates (very close positions and scales) to avoid top 5 being almost identical
+            const uniqueResults = [];
+            for (const res of allResults) {
+                 const isClose = uniqueResults.some(u => 
+                     Math.abs(u.loc.x - res.loc.x) < 10 && 
+                     Math.abs(u.loc.y - res.loc.y) < 10 && 
+                     Math.abs(u.scale - res.scale) < 0.1
+                 );
+                 if (!isClose) {
+                     uniqueResults.push(res);
+                 }
+                 if (uniqueResults.length >= 5) break; // Keep top 5 unique candidates
+            }
+
+            return uniqueResults;
         },
         async processScreenshotAfterCrop(canvas) {
             if (this.isProcessing) return;
@@ -463,99 +517,173 @@ function App() {
                 const graySub = new cv.Mat();
                 cv.cvtColor(subMat, graySub, cv.COLOR_RGBA2GRAY);
 
-                let bestVal = -1;
-                let bestLoc = null;
-                let bestScale = 1;
-
-
                 let currentScaleRes = SCALE_DOWN;
+                let candidates = []; // Holds current best candidates
 
                 // Search config
                 const searchLevels = [
                     {
                         scaleRes: SCALE_DOWN * 0.25,
-                        roiMargin: 0, // 0 means full search
+                        roiMargin: 0, 
                         scaleRange: { min: 0.5, max: 5 },
-                        step: 0.2,
-                        threshold: 0.2, // Min correlation to proceed
-                        status: '粗略搜尋中'
+                        step: 0.1, // Larger step for coarse search
+                        threshold: 0.2,
+                        status: '粗略搜尋中',
+                        keepTop: 5 // Keep top 5 candidates from this level
                     },
                     {
                         scaleRes: SCALE_DOWN * 0.5,
                         roiMargin: 30,
-                        scaleRange: { range: 0.3 }, // +/- range around bestScale
+                        scaleRange: { range: 0.3 }, 
                         step: 0.05,
                         threshold: 0.3,
-                        status: '中等搜尋中'
+                        status: '中等搜尋中',
+                        keepTop: 5 // Narrow down to top 3
                     },
                     {
                         scaleRes: SCALE_DOWN,
                         roiMargin: 10,
                         scaleRange: { range: 0.06 },
                         step: 0.01,
-                        threshold: 0.3,
-                        status: '精確搜尋中'
+                        threshold: 0.35,
+                        status: '精確搜尋中',
+                        keepTop: 1 // Final winner
                     }
                 ];
 
-                for (const level of searchLevels) {
-                    // If previous level failed to meet threshold (except first level which has no previous), break or handle
-                    if (bestVal !== -1 && bestVal < (level.threshold || 0)) {
-                        break;
+                // First level initialization (full search)
+                // We pass null as candidates to indicate full search
+                let currentCandidates = null; 
+                let prevScaleRes = 1; // Not used for first level
+
+                for (let i = 0; i < searchLevels.length; i++) {
+                    const level = searchLevels[i];
+                    
+                    // Construct ROI candidates for this level based on previous candidates
+                    let nextRoiCandidates = [];
+                    
+                    if (i === 0) {
+                        nextRoiCandidates = null; // Full search
+                    } else if (currentCandidates && currentCandidates.length > 0) {
+                        // Create ROIs from previous candidates
+                        for (const cand of currentCandidates) {
+                            const ratio = level.scaleRes / prevScaleRes;
+                            const prevX = cand.loc.x * ratio;
+                            const prevY = cand.loc.y * ratio;
+                            const prevW = graySub.cols * cand.scale * level.scaleRes;
+                            const prevH = graySub.rows * cand.scale * level.scaleRes;
+
+                            nextRoiCandidates.push({
+                                x: prevX - level.roiMargin,
+                                y: prevY - level.roiMargin,
+                                width: prevW + level.roiMargin * 2,
+                                height: prevH + level.roiMargin * 2,
+                                // Pass along the scale from previous finding to constrain range
+                                baseScale: cand.scale 
+                            });
+                        }
+                    } else {
+                        // No valid candidates from previous level, maybe failed
+                        break; 
                     }
 
-                    let roi = null;
-                    if (level.roiMargin > 0 && bestLoc) {
-                        // Calculate ROI based on previous result
-                        const ratio = level.scaleRes / currentScaleRes;
-                        const prevX = bestLoc.x * ratio;
-                        const prevY = bestLoc.y * ratio;
-                        const prevW = graySub.cols * bestScale * level.scaleRes;
-                        const prevH = graySub.rows * bestScale * level.scaleRes;
+                    // Special handling: pass scale ranges per-ROI? 
+                    // Our performTemplateMatch right now takes a SINGLE scaleRange for all ROIs.
+                    // But different candidates might have different scales.
+                    // We need to upgrade performTemplateMatch or loop here.
+                    // To keep performTemplateMatch simple, let's just use the range based on the FIRST candidate 
+                    // or union of all ranges? Or just loop here calling performTemplateMatch multiple times?
+                    // Calling it multiple times is safer and cleaner if ranges are different.
+                    
+                    let levelResults = [];
 
-                        roi = {
-                            x: prevX - level.roiMargin,
-                            y: prevY - level.roiMargin,
-                            width: prevW + level.roiMargin * 2,
-                            height: prevH + level.roiMargin * 2
-                        };
+                    if (i === 0) {
+                        // Full search, single call
+                        levelResults = await this.performTemplateMatch(
+                            grayBase,
+                            graySub,
+                            level.scaleRes,
+                            null, // Full search
+                            level.scaleRange,
+                            level.step,
+                            level.status
+                        );
+                    } else {
+                         // Refined search. Since each candidate has its own "best scale" to refine around,
+                         // we should ideally search around THAT scale.
+                         // But performTemplateMatch interface takes one range. 
+                         // Let's call it for each candidate separately.
+                         
+                         this.statusText = `⏳ ${level.status} (檢查 ${nextRoiCandidates.length} 個候選位置)...`;
+                         
+                         for (let cIdx = 0; cIdx < nextRoiCandidates.length; cIdx++) {
+                             const roiCand = nextRoiCandidates[cIdx];
+                             
+                             // Calculate specific scale range for this candidate
+                             let range = {
+                                min: Math.max(0.5, roiCand.baseScale - level.scaleRange.range),
+                                max: Math.min(5, roiCand.baseScale + level.scaleRange.range)
+                             };
+
+                             const subResults = await this.performTemplateMatch(
+                                grayBase,
+                                graySub,
+                                level.scaleRes,
+                                [roiCand], // Array with single ROI
+                                range,
+                                level.step,
+                                `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`
+                             );
+                             
+                             levelResults = levelResults.concat(subResults);
+                         }
                     }
-
-                    let range = level.scaleRange;
-                    if (range.range !== undefined && bestScale) {
-                        range = {
-                            min: Math.max(0.5, bestScale - range.range),
-                            max: Math.min(5, bestScale + range.range)
-                        };
+                    
+                    // Filter and Sort results from this level
+                    levelResults = levelResults.filter(r => r.val >= level.threshold);
+                    levelResults.sort((a, b) => b.val - a.val);
+                    
+                    // Deduplicate again because different ROIs might converge to same result
+                     const uniqueResults = [];
+                     for (const res of levelResults) {
+                         const isClose = uniqueResults.some(u => 
+                             Math.abs(u.loc.x - res.loc.x) < 10 && 
+                             Math.abs(u.loc.y - res.loc.y) < 10 && 
+                             Math.abs(u.scale - res.scale) < 0.1
+                         );
+                         if (!isClose) {
+                             uniqueResults.push(res);
+                         }
+                         if (uniqueResults.length >= level.keepTop) break;
                     }
+                    
+                    currentCandidates = uniqueResults;
+                    prevScaleRes = level.scaleRes;
+                    currentScaleRes = level.scaleRes; // Track for final output
 
-                    const result = await this.performTemplateMatch(
-                        grayBase,
-                        graySub,
-                        level.scaleRes,
-                        roi,
-                        range,
-                        level.step,
-                        level.status
-                    );
-
-                    if (result.bestVal > bestVal) {
-                        bestVal = result.bestVal;
-                        bestLoc = result.bestLoc;
-                        bestScale = result.bestScale;
-                        currentScaleRes = level.scaleRes;
+                    if (currentCandidates.length === 0) {
+                        break; // Lost track
                     }
                 }
                 
-                // Normalize bestLoc back to SCALE_DOWN
-                if (currentScaleRes !== SCALE_DOWN && bestLoc) {
-                    bestLoc = {
-                        x: bestLoc.x * (SCALE_DOWN / currentScaleRes),
-                        y: bestLoc.y * (SCALE_DOWN / currentScaleRes)
-                    };
-                }
+                // Final Best
+                let bestResult = currentCandidates && currentCandidates.length > 0 ? currentCandidates[0] : null;
 
-                if (bestVal > 0.4) {
+                if (bestResult && bestResult.val > 0.4) {
+                    bestLoc = bestResult.loc;
+                    bestVal = bestResult.val;
+                    bestScale = bestResult.scale;
+                    
+                    // Normalize bestLoc back to SCALE_DOWN
+                    // ... (rest of the logic remains same)
+                    if (currentScaleRes !== SCALE_DOWN && bestLoc) {
+                        bestLoc = {
+                            x: bestLoc.x * (SCALE_DOWN / currentScaleRes),
+                            y: bestLoc.y * (SCALE_DOWN / currentScaleRes)
+                        };
+                    }
+                    
+                    // ... existing success logic ...
                     const finalX = Math.round(bestLoc.x / SCALE_DOWN);
                     const finalY = Math.round(bestLoc.y / SCALE_DOWN);
                     const finalW = Math.round(subMat.cols * bestScale);
