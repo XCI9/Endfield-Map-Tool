@@ -547,24 +547,33 @@ function App() {
                         step: 0.1, // Larger step for coarse search
                         threshold: 0.2,
                         status: '粗略搜尋中',
-                        keepTop: 5 // Keep top 5 candidates from this level
+                        keepTop: 10 // Keep top 50 candidates from this level
                     },
                     {
                         scaleRes: SCALE_DOWN * 0.5,
                         roiMargin: 30,
-                        scaleRange: { range: 0.3 }, 
+                        scaleRange: { range: 0.2 }, 
                         step: 0.05,
                         threshold: 0.3,
                         status: '中等搜尋中',
-                        keepTop: 5 // Narrow down to top 3
+                        keepTop: 5 // Narrow down to top 20
                     },
                     {
                         scaleRes: SCALE_DOWN,
-                        roiMargin: 10,
-                        scaleRange: { range: 0.06 },
-                        step: 0.01,
+                        roiMargin: 20,
+                        scaleRange: { range: 0.05 },
+                        step: 0.03,
                         threshold: 0.35,
                         status: '精確搜尋中',
+                        keepTop: 1
+                    },
+                    {
+                        scaleRes: SCALE_DOWN * 2,
+                        roiMargin: 10,
+                        scaleRange: { range: 0.03 },
+                        step: 0.01,
+                        threshold: 0.4,
+                        status: '確認結果中',
                         keepTop: 1 // Final winner
                     }
                 ];
