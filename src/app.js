@@ -391,12 +391,25 @@ function App() {
             let bestVal = -1;
             let bestLoc = null;
             let bestScale = 1;
-            let index = 0;
+            // let index = 0; // Removed index, use loop count or time for status text updates
 
-            for (let s = scaleRange.min; s <= scaleRange.max; s += step) {
-                const resizedSub = new cv.Mat();
+            let s = scaleRange.min;
+            let loopCount = 0;
+
+            while (s <= scaleRange.max) {
+                 // Calculate scaled size
                 const finalS = s * scaleDownRes;
-                cv.resize(templateImg, resizedSub, new cv.Size(), finalS, finalS, cv.INTER_AREA);
+                const newWidth = Math.round(templateImg.cols * finalS);
+                const newHeight = Math.round(templateImg.rows * finalS);
+
+                // Small size check to avoid false positives with tiny templates
+                if (newWidth < 20 || newHeight < 20) {
+                     s = s * (1 + step); // Geometric progression for next step
+                     continue;
+                }
+
+                const resizedSub = new cv.Mat();
+                cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
 
                 if (resizedSub.cols <= searchRoi.cols && resizedSub.rows <= searchRoi.rows) {
                     const res = new cv.Mat();
@@ -415,11 +428,16 @@ function App() {
                 }
                 resizedSub.delete();
 
-                index += 1;
-                if (index % 4 === 0) {
+                loopCount++;
+                if (loopCount % 5 === 0) {
                     this.statusText = `⏳ ${statusPrefix}... 比例: ${s.toFixed(2)}`;
                     await yieldToUI();
                 }
+                
+                // Geometric progression: scale multiplies instead of adds
+                // Ensure we don't get stuck if step is 0 (though it shouldn't be)
+                const multiplier = 1 + Math.max(0.01, step);
+                s = s * multiplier;
             }
 
             if (roi) {
