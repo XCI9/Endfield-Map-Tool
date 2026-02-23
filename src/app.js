@@ -314,6 +314,17 @@ function App() {
                 this.cropper.reset();
             }
         },
+        selectAllCrop() {
+            if (this.cropper) {
+                const data = this.cropper.getImageData();
+                this.cropper.setData({
+                    x: 0,
+                    y: 0,
+                    width: data.naturalWidth,
+                    height: data.naturalHeight
+                });
+            }
+        },
         cancelCrop() {
             this.showCrop = false;
             // Clean up cropper
