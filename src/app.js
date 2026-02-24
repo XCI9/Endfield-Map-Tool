@@ -519,7 +519,7 @@ function App() {
             });
 
             // Start monitoring progress if needed, but for now just wait
-            this.statusText = `⏳ ${statusPrefix}... (並行運算中)`;
+            this.statusText = `⏳ ${statusPrefix}...`;
             
             try {
                 const resultsArray = await Promise.all(promises);
