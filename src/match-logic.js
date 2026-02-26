@@ -5,80 +5,73 @@
     // Core template matching function
     // Depends on 'cv' being available
     function runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scales) {
+        const EARLY_EXIT_THRESHOLD = 0.97; // Skip remaining scales on near-perfect match
         let allResults = [];
-        
-        // Pre-process ROI candidates to avoid repeated calculations
+        let globalBestVal = -1;
+
+        // Pre-extract ROI sub-Mats ONCE before the scale loop.
+        // Previously they were created & deleted O(scales × ROIs) times;
+        // now we pay that cost only O(ROIs) times.
         let roisWithType = [];
         if (!roiCandidates || roiCandidates.length === 0) {
-            roisWithType.push({ rect: null }); // Full search
+            roisWithType.push({ rect: null, mat: searchBase, offsetX: 0, offsetY: 0 });
         } else {
             for (const cand of roiCandidates) {
                 const roiX = Math.max(0, Math.round(cand.x));
                 const roiY = Math.max(0, Math.round(cand.y));
                 const roiW = Math.min(searchBase.cols - roiX, Math.round(cand.width));
                 const roiH = Math.min(searchBase.rows - roiY, Math.round(cand.height));
-                
+
                 if (roiW > 0 && roiH > 0) {
-                     roisWithType.push({ 
-                         rect: new cv.Rect(roiX, roiY, roiW, roiH)
-                     });
+                    const rect = new cv.Rect(roiX, roiY, roiW, roiH);
+                    roisWithType.push({
+                        rect,
+                        mat: searchBase.roi(rect), // Sub-Mat pre-extracted once
+                        offsetX: roiX,
+                        offsetY: roiY
+                    });
                 }
             }
         }
 
         for (const s of scales) {
+            if (globalBestVal >= EARLY_EXIT_THRESHOLD) break; // Near-perfect match – no point checking more scales
+
             const finalS = s * scaleDownRes;
             const newWidth = Math.round(templateImg.cols * finalS);
             const newHeight = Math.round(templateImg.rows * finalS);
-
-            if (newWidth < 20 || newHeight < 20) {
-                 continue;
-            }
+            if (newWidth < 20 || newHeight < 20) continue;
 
             const resizedSub = new cv.Mat();
             cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
 
             for (const roiInfo of roisWithType) {
-                let searchRoiMat;
-                let roiOffsetX = 0;
-                let roiOffsetY = 0;
+                const searchRoiMat = roiInfo.mat; // Reuse pre-extracted sub-Mat
+                // Skip if template is larger than search area in either dimension
+                if (resizedSub.cols > searchRoiMat.cols || resizedSub.rows > searchRoiMat.rows) continue;
 
-                if (roiInfo.rect) {
-                    // If the ROI is smaller than the template in any dimension, skip
-                    if (roiInfo.rect.width < resizedSub.cols || roiInfo.rect.height < resizedSub.rows) {
-                        continue; 
-                    }
-                    searchRoiMat = searchBase.roi(roiInfo.rect);
-                    roiOffsetX = roiInfo.rect.x;
-                    roiOffsetY = roiInfo.rect.y;
-                } else {
-                    searchRoiMat = searchBase;
-                }
+                const res = new cv.Mat();
+                cv.matchTemplate(searchRoiMat, resizedSub, res, cv.TM_CCOEFF_NORMED);
+                const minMax = cv.minMaxLoc(res);
+                res.delete();
 
-                // Ensure search area is larger or equal to template
-                if (resizedSub.cols <= searchRoiMat.cols && resizedSub.rows <= searchRoiMat.rows) {
-                    const res = new cv.Mat();
-                    cv.matchTemplate(searchRoiMat, resizedSub, res, cv.TM_CCOEFF_NORMED);
-                    const minMax = cv.minMaxLoc(res);
-
-                    allResults.push({
-                        val: minMax.maxVal,
-                        loc: {
-                            x: minMax.maxLoc.x + roiOffsetX,
-                            y: minMax.maxLoc.y + roiOffsetY
-                        },
-                        scale: s
-                    });
-                    
-                    res.delete();
-                }
-                
-                if (roiInfo.rect) {
-                     searchRoiMat.delete();
-                }
+                if (minMax.maxVal > globalBestVal) globalBestVal = minMax.maxVal;
+                allResults.push({
+                    val: minMax.maxVal,
+                    loc: {
+                        x: minMax.maxLoc.x + roiInfo.offsetX,
+                        y: minMax.maxLoc.y + roiInfo.offsetY
+                    },
+                    scale: s
+                });
             }
-            
+
             resizedSub.delete();
+        }
+
+        // Release only the sub-Mats we created; never delete searchBase itself
+        for (const roiInfo of roisWithType) {
+            if (roiInfo.rect) roiInfo.mat.delete();
         }
 
         return allResults;

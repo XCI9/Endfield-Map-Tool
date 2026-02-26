@@ -5,10 +5,18 @@
 // ─────────────────────────────────────────────
 
 const Matcher = {
-    async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix) {
-        // Resize base once in main thread
-        const scaledBase = new cv.Mat();
-        cv.resize(baseMatRef, scaledBase, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_AREA);
+    async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix, _preScaledBase = null) {
+        // Use caller-supplied pre-scaled base when available (avoids re-resizing
+        // the same image for every candidate at the same level)
+        let scaledBase, ownScaledBase;
+        if (_preScaledBase) {
+            scaledBase = _preScaledBase;
+            ownScaledBase = false;
+        } else {
+            scaledBase = new cv.Mat();
+            cv.resize(baseMatRef, scaledBase, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_AREA);
+            ownScaledBase = true;
+        }
 
         // Build scale list
         let scales = [];
@@ -30,7 +38,7 @@ const Matcher = {
         if (workers.length === 0 || scales.length < 2) {
             console.warn('No workers available, running on main thread');
             const results = this.runMatchLocal(scaledBase, templateMatRef, scaleDownRes, roiCandidates, scales);
-            scaledBase.delete();
+            if (ownScaledBase) scaledBase.delete();
             return results;
         }
 
@@ -76,11 +84,11 @@ const Matcher = {
 
         try {
             const allResults = (await Promise.all(promises)).flat();
-            scaledBase.delete();
+            if (ownScaledBase) scaledBase.delete();
             return this._deduplicateResults(allResults, 5);
         } catch (e) {
             console.error('Worker error', e);
-            scaledBase.delete();
+            if (ownScaledBase) scaledBase.delete();
             return [];
         }
     },
@@ -162,16 +170,26 @@ const Matcher = {
                 if (i === 0) {
                     levelResults = await this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, null, level.scaleRange, level.step, level.status);
                 } else {
+                    // Pre-scale base ONCE for this level, then share it across all candidate
+                    // calls – eliminates O(candidates − 1) redundant cv.resize() operations
+                    const levelScaledBase = new cv.Mat();
+                    cv.resize(grayBase, levelScaledBase, new cv.Size(), level.scaleRes, level.scaleRes, cv.INTER_AREA);
+
                     appState.statusText = `⏳ ${level.status} (檢查 ${nextRoiCandidates.length} 個候選位置)...`;
-                    for (let cIdx = 0; cIdx < nextRoiCandidates.length; cIdx++) {
-                        const roiCand = nextRoiCandidates[cIdx];
+
+                    // Fire all candidate matches in parallel so the worker pool
+                    // stays fully loaded instead of idling between sequential awaits
+                    const candidatePromises = nextRoiCandidates.map((roiCand, cIdx) => {
                         const range = {
                             min: Math.max(0.5, roiCand.baseScale - level.scaleRange.range),
                             max: Math.min(5,   roiCand.baseScale + level.scaleRange.range)
                         };
-                        const sub = await this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`);
-                        levelResults = levelResults.concat(sub);
-                    }
+                        return this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`, levelScaledBase);
+                    });
+
+                    const subResults = await Promise.all(candidatePromises);
+                    levelResults = subResults.flat();
+                    levelScaledBase.delete();
                 }
 
                 levelResults = levelResults.filter(r => r.val >= level.threshold);
