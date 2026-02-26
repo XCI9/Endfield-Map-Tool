@@ -51,7 +51,7 @@ function App() {
                 workers.forEach(w => w.terminate());
                 workers = [];
                 const coreCount = navigator.hardwareConcurrency || 2;
-                const workerCount = Math.max(2, coreCount);
+                const workerCount = Math.min(2, coreCount);
                 console.log(`Initializing ${workerCount} workers (Cores: ${coreCount})`);
                 for (let i = 0; i < workerCount; i++) {
                     try { workers.push(new Worker('src/worker.js')); }
