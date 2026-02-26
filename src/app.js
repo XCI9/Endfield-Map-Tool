@@ -569,72 +569,13 @@ function App() {
         async runMatchLocal(searchBase, templateImg, scaleDownRes, roiCandidates, scales) {
             // Fallback implementation on main thread
             // Similar to worker logic
-            const roisWithType = [];
-             if (!roiCandidates || roiCandidates.length === 0) {
-                roisWithType.push({ rect: null }); 
-            } else {
-                for (const cand of roiCandidates) {
-                    const roiX = Math.max(0, Math.round(cand.x));
-                    const roiY = Math.max(0, Math.round(cand.y));
-                    const roiW = Math.min(searchBase.cols - roiX, Math.round(cand.width));
-                    const roiH = Math.min(searchBase.rows - roiY, Math.round(cand.height));
-                    
-                    if (roiW > 0 && roiH > 0) {
-                         roisWithType.push({ 
-                             rect: new cv.Rect(roiX, roiY, roiW, roiH)
-                         });
-                    }
-                }
+            if (window.runTemplateMatch) {
+                return window.runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scales);
             }
-
-            let allResults = [];
             
-            for (const s of scales) {
-                const finalS = s * scaleDownRes;
-                const newWidth = Math.round(templateImg.cols * finalS);
-                const newHeight = Math.round(templateImg.rows * finalS);
-
-                const resizedSub = new cv.Mat();
-                cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
-
-                for (const roiInfo of roisWithType) {
-                    let searchRoiMat;
-                    let roiOffsetX = 0;
-                    let roiOffsetY = 0;
-
-                    if (roiInfo.rect) {
-                        searchRoiMat = searchBase.roi(roiInfo.rect);
-                        roiOffsetX = roiInfo.rect.x;
-                        roiOffsetY = roiInfo.rect.y;
-                    } else {
-                        searchRoiMat = searchBase;
-                    }
-
-                    if (resizedSub.cols <= searchRoiMat.cols && resizedSub.rows <= searchRoiMat.rows) {
-                        const res = new cv.Mat();
-                        cv.matchTemplate(searchRoiMat, resizedSub, res, cv.TM_CCOEFF_NORMED);
-                        const minMax = cv.minMaxLoc(res);
-
-                        allResults.push({
-                            val: minMax.maxVal,
-                            loc: {
-                                x: minMax.maxLoc.x + roiOffsetX,
-                                y: minMax.maxLoc.y + roiOffsetY
-                            },
-                            scale: s
-                        });
-                        
-                        res.delete();
-                    }
-                    if (roiInfo.rect) {
-                         searchRoiMat.delete();
-                    }
-                }
-                resizedSub.delete();
-            }
-            // Cleanup rects if any? (JS objects)
-            
-            return allResults;
+            // Should not happen if script inserted correctly
+            console.error("Match logic script not loaded");
+            return [];
         },
         async processScreenshotAfterCrop(canvas) {
             if (this.isProcessing) return;
