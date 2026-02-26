@@ -459,9 +459,28 @@ function App() {
             });
             
             // Prepare data copying for transfer
-            // We need to copy data because we cannot transfer WASM memory
-            const baseData = new Uint8Array(searchBase.data);
-            const templateData = new Uint8Array(templateMatRef.data);
+            // We optimize by using SharedArrayBuffer if available to avoid cloning data for every worker
+            let baseData, templateData;
+            
+            // Check for SharedArrayBuffer support
+            const useSharedBuffer = typeof SharedArrayBuffer !== 'undefined';
+
+            if (useSharedBuffer) {
+                // Create SharedArrayBuffer and copy data
+                const baseBuffer = new SharedArrayBuffer(searchBase.data.length);
+                const baseView = new Uint8Array(baseBuffer);
+                baseView.set(searchBase.data);
+                baseData = baseView;
+
+                const templateBuffer = new SharedArrayBuffer(templateMatRef.data.length);
+                const templateView = new Uint8Array(templateBuffer);
+                templateView.set(templateMatRef.data);
+                templateData = templateView;
+            } else {
+                // Fallback to copying to standard ArrayBuffer (forces clone on postMessage for multiple workers)
+                baseData = new Uint8Array(searchBase.data);
+                templateData = new Uint8Array(templateMatRef.data);
+            }
             
             const basePayload = {
                 rows: searchBase.rows,
@@ -495,18 +514,14 @@ function App() {
                     
                     // We send copies of data to each worker. 
                     // To avoid main thread freeze during copy, we already copied to Uint8Array.
-                    // But we can transmit the SAME buffer to multiple workers? 
-                    // No, invalidating buffer if transferred.
-                    // We must clone for the second worker if we transfer the first.
-                    // Or just let structured clone handle it (copy).
-                    // Sending `baseData` (Uint8Array) directly triggers structured clone (copy).
-                    // This is overhead but safe.
+                    // If SharedArrayBuffer is used, no copy happens here.
+                    // If not, each worker gets a copy.
                     
                     worker.postMessage({
                         cmd: 'match',
                         id: id,
                         payload: {
-                            baseData: basePayload, // This will be cloned
+                            baseData: basePayload, // SharedArrayBuffer or Copied ArrayBuffer
                             templateData: templatePayload,
                             scaleDownRes,
                             roiCandidates,
