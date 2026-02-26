@@ -34,6 +34,10 @@ const MapLoader = {
         canvas.height = img.height;
         canvas.getContext('2d').drawImage(img, 0, 0);
 
+        // Yield before heavy sync work so the DOM can reflect isLoadingBaseMap=true
+        // (disabled state) before the event loop freezes.
+        await yieldToUI();
+
         if (baseMat) baseMat.delete();
         if (originalBaseMat) originalBaseMat.delete();
         if (grayBase) grayBase.delete();
@@ -57,11 +61,16 @@ const MapLoader = {
         CanvasManager.renderView(appState.showOriginalBase);
         ExportHandler.updatePreview(appState);
         appState.statusText = `✅ 基底地圖已載入：${mapInfo.name}，請上傳截圖`;
+
+        // Yield again before clearing the flag. Any click events that were queued
+        // during the synchronous OpenCV work above will fire HERE — while
+        // isLoadingBaseMap is still true — so the JS-level guards can catch them.
+        await yieldToUI();
         appState.isLoadingBaseMap = false;
     },
 
     async selectMap(appState, key) {
-        if (appState.isProcessing) return;
+        if (appState.isProcessing || appState.isLoadingBaseMap) return;
         if (appState.currentMapKey === key) return;
 
         if (hasOverlay) {

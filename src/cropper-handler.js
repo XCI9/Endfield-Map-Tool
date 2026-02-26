@@ -6,7 +6,7 @@
 
 const CropperHandler = {
     openFilePicker(appState) {
-        if (appState.isProcessing) return;
+        if (appState.isProcessing || appState.isLoadingBaseMap) return;
         appState.$refs.subFile.value = '';
         appState.$refs.subFile.click();
     },
@@ -17,7 +17,7 @@ const CropperHandler = {
     },
 
     async openCropWithFile(appState, file) {
-        if (appState.isProcessing) return;
+        if (appState.isProcessing || appState.isLoadingBaseMap) return;
         if (!file.type.startsWith('image/')) {
             appState.statusText = '❌ 只支援圖片檔案';
             return;

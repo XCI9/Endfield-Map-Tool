@@ -26,6 +26,7 @@ const ExportHandler = {
     },
 
     openPreviewModal(appState) {
+        if (appState.isProcessing || appState.isLoadingBaseMap) return;
         appState.showPreviewModal = true;
         this.updatePreview(appState);
     },
