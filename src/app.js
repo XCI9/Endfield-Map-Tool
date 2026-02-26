@@ -330,14 +330,7 @@ function App() {
                 toggleDragModeOnDblclick: false,
             });
         },
-        // Removed old manual crop methods
-        /*
-        startCrop(e) { ... },
-        drawCrop(e) { ... },
-        drawCropFromWindow(e) { ... },
-        endCrop(e) { ... },
-        drawCropOverlay() { ... },
-        */
+
         resetCrop() {
             if (this.cropper) {
                 this.cropper.reset();
