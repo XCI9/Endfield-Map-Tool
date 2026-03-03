@@ -124,7 +124,7 @@ const Matcher = {
         return unique;
     },
 
-    async processScreenshotAfterCrop(appState, canvas) {
+    async processScreenshotAfterCrop(appState, canvas, customLevel0Override = null) {
         if (appState.isProcessing) return;
         if (!grayBase) {
             appState.statusText = '❌ 基底地圖尚未載入';
@@ -159,12 +159,24 @@ const Matcher = {
 
             let currentScaleRes = SCALE_DOWN;
 
+            const globalScaleRange = { min: 0.5, max: 5 };
+            if (customLevel0Override && customLevel0Override.scaleRange) {
+                globalScaleRange.min = customLevel0Override.scaleRange.min;
+                globalScaleRange.max = customLevel0Override.scaleRange.max;
+            }
+
             const searchLevels = [
-                { scaleRes: SCALE_DOWN * 0.25, roiMargin: 0,  scaleRange: { min: 0.5, max: 5 }, step: 0.1,  threshold: 0.2, status: '粗略搜尋中', keepTop: 10 },
+                { scaleRes: SCALE_DOWN * 0.25, roiMargin: 0,  scaleRange: { ...globalScaleRange }, step: 0.1,  threshold: 0.2, status: '粗略搜尋中', keepTop: 10 },
                 { scaleRes: SCALE_DOWN * 0.5,  roiMargin: 30, scaleRange: { range: 0.2 },        step: 0.05, threshold: 0.3, status: '中等搜尋中', keepTop: 5 },
                 { scaleRes: SCALE_DOWN,         roiMargin: 20, scaleRange: { range: 0.05 },       step: 0.03, threshold: 0.35, status: '精確搜尋中', keepTop: 1 },
                 { scaleRes: SCALE_DOWN * 2,     roiMargin: 10, scaleRange: { range: 0.03 },       step: 0.01, threshold: 0.4,  status: '確認結果中', keepTop: 1 }
             ];
+
+            if (customLevel0Override) {
+                Object.assign(searchLevels[0], customLevel0Override);
+                // Ensure the overridden scaleRange is used rather than replaced completely if undefined in override
+                searchLevels[0].scaleRange = customLevel0Override.scaleRange || globalScaleRange;
+            }
 
             let currentCandidates = null;
             let prevScaleRes = 1;
@@ -206,8 +218,8 @@ const Matcher = {
                     // stays fully loaded instead of idling between sequential awaits
                     const candidatePromises = nextRoiCandidates.map((roiCand, cIdx) => {
                         const range = {
-                            min: Math.max(0.5, roiCand.baseScale - level.scaleRange.range),
-                            max: Math.min(5,   roiCand.baseScale + level.scaleRange.range)
+                            min: Math.max(globalScaleRange.min, roiCand.baseScale - level.scaleRange.range),
+                            max: Math.min(globalScaleRange.max, roiCand.baseScale + level.scaleRange.range)
                         };
                         return this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`, levelScaledBase, matchMask);
                     });
@@ -272,7 +284,18 @@ const Matcher = {
                 historyCanvas.height = finalSub.rows;
                 cv.imshow(historyCanvas, finalSub);
 
-                appState.history.push({ canvas: historyCanvas, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+                // Ensure the original unmodified canvas is also cloned and saved for rematching
+                const savedOriginalCanvas = document.createElement('canvas');
+                savedOriginalCanvas.width = canvas.width;
+                savedOriginalCanvas.height = canvas.height;
+                savedOriginalCanvas.getContext('2d').drawImage(canvas, 0, 0);
+
+                appState.history.push({ 
+                    canvas: historyCanvas, 
+                    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+                    originalCanvas: savedOriginalCanvas,
+                    scale: bestScale
+                });
                 appState.canUndo = true;
 
                 CanvasManager.renderView(appState.showOriginalBase);

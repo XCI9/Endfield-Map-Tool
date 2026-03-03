@@ -20,6 +20,8 @@ function App() {
         previewIncludeBase: true,
         showPreviewModal: false,
         showConfirmModal: false,
+        showRematchModal: false,
+        rematchType: 'smaller',
         showInstructions: true,
         showUpdateLog: false,
         isLoadingBaseMap: false,
@@ -140,6 +142,30 @@ function App() {
 
         // ── History ──
         undoLastAction()            { History.undoLastAction(this); },
+        openRematchModal() {
+            if (!this.canUndo || this.isProcessing) return;
+            this.rematchType = 'smaller';
+            this.showRematchModal = true;
+        },
+        async confirmRematch() {
+            this.showRematchModal = false;
+            const lastAction = this.history[this.history.length - 1];
+            if (!lastAction || !lastAction.originalCanvas) return;
+            
+            // Undo visual state but keep the original canvas
+            const origCanvas = lastAction.originalCanvas;
+            const scale = lastAction.scale; // Assuming we stored the found scale
+            this.undoLastAction();
+            
+            let customLevel0 = null;
+            if (this.rematchType === 'smaller') {
+                customLevel0 = { scaleRange: { min: 0.5, max: scale * 0.95 }, step: 0.1, status: '搜尋更小比例中' };
+            } else if (this.rematchType === 'larger') {
+                customLevel0 = { scaleRange: { min: scale * 1.05, max: 5 }, step: 0.1, status: '搜尋更大比例中' };
+            }
+
+            await Matcher.processScreenshotAfterCrop(this, origCanvas, customLevel0);
+        },
 
         // ── Export / Preview ──
         openPreviewModal()          { ExportHandler.openPreviewModal(this); },
