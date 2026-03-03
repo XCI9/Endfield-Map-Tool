@@ -4,7 +4,7 @@
     
     // Core template matching function
     // Depends on 'cv' being available
-    function runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scales) {
+    function runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask) {
         const EARLY_EXIT_THRESHOLD = 0.97; // Skip remaining scales on near-perfect match
         let allResults = [];
         let globalBestVal = -1;
@@ -44,6 +44,25 @@
 
             const resizedSub = new cv.Mat();
             cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
+
+            // When a mask exists, fill transparent pixels with the mean of the
+            // opaque region at THIS scale.  TM_CCOEFF_NORMED internally subtracts
+            // the template mean, so mean-filled pixels contribute ≈0 to the
+            // correlation — effectively masking them out without needing native
+            // mask support (which TM_CCOEFF_NORMED lacks in OpenCV.js 4.5.4).
+            if (templateMask) {
+                const resizedMask = new cv.Mat();
+                cv.resize(templateMask, resizedMask, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_NEAREST);
+
+                const meanScalar = cv.mean(resizedSub, resizedMask);
+                const invMask = new cv.Mat();
+                cv.bitwise_not(resizedMask, invMask);
+                const fillMat = new cv.Mat(newHeight, newWidth, resizedSub.type(), new cv.Scalar(meanScalar[0]));
+                fillMat.copyTo(resizedSub, invMask);
+                fillMat.delete();
+                invMask.delete();
+                resizedMask.delete();
+            }
 
             for (const roiInfo of roisWithType) {
                 const searchRoiMat = roiInfo.mat; // Reuse pre-extracted sub-Mat

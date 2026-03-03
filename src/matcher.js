@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────
 
 const Matcher = {
-    async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix, _preScaledBase = null) {
+    async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix, _preScaledBase = null, templateMaskRef = null) {
         // Use caller-supplied pre-scaled base when available (avoids re-resizing
         // the same image for every candidate at the same level)
         let scaledBase, ownScaledBase;
@@ -37,7 +37,7 @@ const Matcher = {
         // Fallback to main thread if no workers
         if (workers.length === 0 || scales.length < 2) {
             console.warn('No workers available, running on main thread');
-            const results = this.runMatchLocal(scaledBase, templateMatRef, scaleDownRes, roiCandidates, scales);
+            const results = this.runMatchLocal(scaledBase, templateMatRef, scaleDownRes, roiCandidates, scales, templateMaskRef);
             if (ownScaledBase) scaledBase.delete();
             return results;
         }
@@ -49,7 +49,7 @@ const Matcher = {
         // Use SharedArrayBuffer if available (zero-copy across workers)
         const useSharedBuffer = typeof SharedArrayBuffer !== 'undefined';
 
-        let baseData, templateData;
+        let baseData, templateData, maskData;
         if (useSharedBuffer) {
             const baseBuf = new SharedArrayBuffer(scaledBase.data.length);
             new Uint8Array(baseBuf).set(scaledBase.data);
@@ -58,13 +58,21 @@ const Matcher = {
             const tplBuf = new SharedArrayBuffer(templateMatRef.data.length);
             new Uint8Array(tplBuf).set(templateMatRef.data);
             templateData = new Uint8Array(tplBuf);
+
+            if (templateMaskRef) {
+                const maskBuf = new SharedArrayBuffer(templateMaskRef.data.length);
+                new Uint8Array(maskBuf).set(templateMaskRef.data);
+                maskData = new Uint8Array(maskBuf);
+            }
         } else {
             baseData = new Uint8Array(scaledBase.data);
             templateData = new Uint8Array(templateMatRef.data);
+            if (templateMaskRef) maskData = new Uint8Array(templateMaskRef.data);
         }
 
         const basePayload = { rows: scaledBase.rows, cols: scaledBase.cols, type: scaledBase.type(), data: baseData };
         const templatePayload = { rows: templateMatRef.rows, cols: templateMatRef.cols, type: templateMatRef.type(), data: templateData };
+        const maskPayload = templateMaskRef ? { rows: templateMaskRef.rows, cols: templateMaskRef.cols, type: templateMaskRef.type(), data: maskData } : null;
 
         const promises = workers.map((worker, index) => new Promise((resolve, reject) => {
             const id = `${Date.now()}_${index}`;
@@ -76,7 +84,7 @@ const Matcher = {
             worker.addEventListener('message', handleMsg);
             worker.postMessage({
                 cmd: 'match', id,
-                payload: { baseData: basePayload, templateData: templatePayload, scaleDownRes, roiCandidates, scaleRange: { min: 0, max: 0 }, scales: chunks[index], step }
+                payload: { baseData: basePayload, templateData: templatePayload, maskData: maskPayload, scaleDownRes, roiCandidates, scaleRange: { min: 0, max: 0 }, scales: chunks[index], step }
             });
         }));
 
@@ -93,9 +101,9 @@ const Matcher = {
         }
     },
 
-    runMatchLocal(scaledBase, templateImg, scaleDownRes, roiCandidates, scales) {
+    runMatchLocal(scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask) {
         if (window.runTemplateMatch) {
-            return window.runTemplateMatch(cv, scaledBase, templateImg, scaleDownRes, roiCandidates, scales);
+            return window.runTemplateMatch(cv, scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask);
         }
         console.error('match-logic.js not loaded');
         return [];
@@ -129,8 +137,25 @@ const Matcher = {
             appState.statusText = '⏳ 正在搜尋最佳位置與比例...';
 
             const subMat = cv.imread(canvas);
+
+            // ── Transparency handling ─────────────────────────────────────────
+            // Extract alpha channel once; reused as matchTemplate mask and
+            // compositing mask.
+            const rgbaPlanes = new cv.MatVector();
+            cv.split(subMat, rgbaPlanes);
+            const alphaMask = rgbaPlanes.get(3).clone();
+            for (let i = 0; i < rgbaPlanes.size(); i++) rgbaPlanes.get(i).delete();
+            rgbaPlanes.delete();
+
+            // Detect if image actually has transparent pixels.
+            // If fully opaque → matchMask = null (skip mask overhead entirely)
+            const totalPixels = alphaMask.rows * alphaMask.cols;
+            const opaquePixels = cv.countNonZero(alphaMask);
+            const matchMask = (opaquePixels < totalPixels) ? alphaMask : null;
+
             const graySub = new cv.Mat();
             cv.cvtColor(subMat, graySub, cv.COLOR_RGBA2GRAY);
+            // ─────────────────────────────────────────────────────────────────
 
             let currentScaleRes = SCALE_DOWN;
 
@@ -168,7 +193,7 @@ const Matcher = {
                 let levelResults = [];
 
                 if (i === 0) {
-                    levelResults = await this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, null, level.scaleRange, level.step, level.status);
+                    levelResults = await this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, null, level.scaleRange, level.step, level.status, null, matchMask);
                 } else {
                     // Pre-scale base ONCE for this level, then share it across all candidate
                     // calls – eliminates O(candidates − 1) redundant cv.resize() operations
@@ -184,7 +209,7 @@ const Matcher = {
                             min: Math.max(0.5, roiCand.baseScale - level.scaleRange.range),
                             max: Math.min(5,   roiCand.baseScale + level.scaleRange.range)
                         };
-                        return this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`, levelScaledBase);
+                        return this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`, levelScaledBase, matchMask);
                     });
 
                     const subResults = await Promise.all(candidatePromises);
@@ -227,9 +252,16 @@ const Matcher = {
                     Math.min(finalH, baseMat.rows - finalY)
                 );
 
+                // Resize alpha mask to final dimensions for compositing
+                const finalAlphaMask = new cv.Mat();
+                cv.resize(alphaMask, finalAlphaMask, new cv.Size(finalW, finalH));
+
                 const roi = baseMat.roi(rect);
                 const clippedSub = finalSub.roi(new cv.Rect(0, 0, rect.width, rect.height));
-                clippedSub.copyTo(roi);
+                const clippedAlphaMask = finalAlphaMask.roi(new cv.Rect(0, 0, rect.width, rect.height));
+                clippedSub.copyTo(roi, clippedAlphaMask); // only write non-transparent pixels
+                clippedAlphaMask.delete();
+                finalAlphaMask.delete();
 
                 CanvasManager.syncBaseCanvasSizes();
                 cv.imshow('baseCanvas', baseMat);
@@ -260,6 +292,7 @@ const Matcher = {
             if (searchBase && !searchBase.isDeleted()) searchBase.delete();
             subMat.delete();
             graySub.delete();
+            alphaMask.delete();
         } finally {
             appState.isProcessing = false;
         }
