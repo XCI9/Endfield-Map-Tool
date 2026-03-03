@@ -30,13 +30,9 @@ const CanvasManager = {
         hasOverlay = false;
     },
 
-    updateOverlayCanvas(finalSub, rect) {
+    updateOverlayCanvas(compositeCanvas, rect) {
         if (!overlayCanvas || !overlayCtx || !baseMat) return;
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = finalSub.cols;
-        tempCanvas.height = finalSub.rows;
-        cv.imshow(tempCanvas, finalSub);
-        overlayCtx.drawImage(tempCanvas, rect.x, rect.y, rect.width, rect.height);
+        overlayCtx.drawImage(compositeCanvas, rect.x, rect.y, rect.width, rect.height);
         hasOverlay = true;
     },
 

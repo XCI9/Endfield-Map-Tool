@@ -254,9 +254,6 @@ const Matcher = {
                 const finalW = Math.round(subMat.cols * bestScale);
                 const finalH = Math.round(subMat.rows * bestScale);
 
-                const finalSub = new cv.Mat();
-                cv.resize(subMat, finalSub, new cv.Size(finalW, finalH));
-
                 const rect = new cv.Rect(
                     Math.max(0, finalX),
                     Math.max(0, finalY),
@@ -264,25 +261,35 @@ const Matcher = {
                     Math.min(finalH, baseMat.rows - finalY)
                 );
 
-                // Resize alpha mask to final dimensions for compositing
-                const finalAlphaMask = new cv.Mat();
-                cv.resize(alphaMask, finalAlphaMask, new cv.Size(finalW, finalH));
-
-                const roi = baseMat.roi(rect);
-                const clippedSub = finalSub.roi(new cv.Rect(0, 0, rect.width, rect.height));
-                const clippedAlphaMask = finalAlphaMask.roi(new cv.Rect(0, 0, rect.width, rect.height));
-                clippedSub.copyTo(roi, clippedAlphaMask); // only write non-transparent pixels
-                clippedAlphaMask.delete();
-                finalAlphaMask.delete();
-
-                CanvasManager.syncBaseCanvasSizes();
-                cv.imshow('baseCanvas', baseMat);
-                CanvasManager.updateOverlayCanvas(finalSub, rect);
-
+                // Use pure DOM Canvas to resize the original image! 
+                // This perfectly handles native CSS alpha blending anti-aliasing without OpenCV black fringes
                 const historyCanvas = document.createElement('canvas');
-                historyCanvas.width = finalSub.cols;
-                historyCanvas.height = finalSub.rows;
-                cv.imshow(historyCanvas, finalSub);
+                historyCanvas.width = finalW;
+                historyCanvas.height = finalH;
+                const hCtx = historyCanvas.getContext('2d');
+                hCtx.imageSmoothingEnabled = true;
+                hCtx.imageSmoothingQuality = 'high';
+                hCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, finalW, finalH);
+
+                CanvasManager.syncBaseCanvasSizes(); 
+                cv.imshow('baseCanvas', baseMat);
+                
+                // Do NOT use OpenCV copyTo for merging the alpha image, as it causes black jagged edges.
+                // Draw onto visual canvas directly.
+                if (baseCanvas) {
+                    baseCanvas.getContext('2d').drawImage(
+                        historyCanvas, 
+                        0, 0, rect.width, rect.height, 
+                        rect.x, rect.y, rect.width, rect.height
+                    );
+                    
+                    // Sync perfectly composited canvas BACK to OpenCV memory
+                    const newBaseMat = cv.imread(baseCanvas);
+                    baseMat.delete();
+                    baseMat = newBaseMat;
+                }
+
+                CanvasManager.updateOverlayCanvas(historyCanvas, rect);
 
                 // Ensure the original unmodified canvas is also cloned and saved for rematching
                 const savedOriginalCanvas = document.createElement('canvas');

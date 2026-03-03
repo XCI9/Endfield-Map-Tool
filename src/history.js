@@ -17,19 +17,26 @@ const History = {
 
         CanvasManager.resetOverlayCanvas();
 
-        // Replay remaining history onto baseMat and overlay
-        for (const item of appState.history) {
-            const itemMat = cv.imread(item.canvas);
-            const roi = baseMat.roi(new cv.Rect(item.rect.x, item.rect.y, item.rect.width, item.rect.height));
-            itemMat.copyTo(roi);
-            itemMat.delete();
-            roi.delete();
+        cv.imshow('baseCanvas', baseMat);
 
-            overlayCtx.drawImage(item.canvas, item.rect.x, item.rect.y, item.rect.width, item.rect.height);
-            hasOverlay = true;
+        if (baseCanvas) {
+            const ctx = baseCanvas.getContext('2d');
+            
+            // Replay remaining history onto baseCanvas using pure DOM Canvas high-quality blending
+            for (const item of appState.history) {
+                // Draw onto visual base canvas perfectly
+                ctx.drawImage(item.canvas, 0, 0, item.rect.width, item.rect.height, item.rect.x, item.rect.y, item.rect.width, item.rect.height);
+                // Also update the overlay canvas for the view mode
+                overlayCtx.drawImage(item.canvas, 0, 0, item.rect.width, item.rect.height, item.rect.x, item.rect.y, item.rect.width, item.rect.height);
+                hasOverlay = true;
+            }
+
+            // Sync baseMat back from the perfectly blended baseCanvas so memory matches screen
+            const newBaseMat = cv.imread(baseCanvas);
+            baseMat.delete();
+            baseMat = newBaseMat;
         }
 
-        cv.imshow('baseCanvas', baseMat);
         CanvasManager.renderView(appState.showOriginalBase);
         ExportHandler.updatePreview(appState);
         appState.statusText = '↩️ 已復原上一步操作';
