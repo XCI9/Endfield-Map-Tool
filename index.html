@@ -56,7 +56,7 @@
         <header class="toolbar">
             <div class="toolbar-main">
                 <div class="toolbar-header">
-                    <h3>終末地地圖合併工具 v1.2.0</h3>
+                    <h3>終末地地圖合併工具 v1.3.0</h3>
                 </div>
                 <div class="actions">
                     <div class="map-switcher">
@@ -101,7 +101,14 @@
                     <div class="log-content" v-show="showUpdateLog">
                         <ul>
                             <li>
-                                <span class="version">v1.2.0</span>
+                                <span class="version">v1.3.0</span>
+                                <ul>
+                                    <li>保留上傳圖片的透明圖層，並盡量不影響辨識結果。</li>
+                                    <li>新增重新辨識功能。</li>
+                                </ul>
+                            </li>
+                            <li>
+                                <span class="version">v1.3.0</span>
                                 <ul>
                                     <li>大幅改善辨識速度。</li>
                                 </ul>
@@ -258,8 +265,7 @@
                             更大 (應該放大圖片)
                         </label>
                         <label style="color: #888; font-size: 0.9em; margin-top: 5px;">
-                            <input type="radio" value="same" disabled>
-                            差不多 (本工具針對相同輸入辨識結果會相同，請重新調整截圖範圍或嘗試隱藏截圖上一些基建圖示)
+                            註: 如果是差不多大小，由於本工具針對相同輸入辨識結果會相同，因此較難直接處理，請重新調整截圖範圍、減少截圖上的透明圖層佔比或嘗試隱藏截圖上一些基建圖示，再重新上傳
                         </label>
                     </div>
                 </div>
