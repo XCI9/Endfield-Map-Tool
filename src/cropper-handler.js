@@ -47,6 +47,7 @@ const CropperHandler = {
 
         let minX = width, minY = height, maxX = 0, maxY = 0;
         let hasPixels = false;
+        let opaquePixelCount = 0;
 
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
@@ -56,15 +57,19 @@ const CropperHandler = {
                     if (y < minY) minY = y;
                     if (y > maxY) maxY = y;
                     hasPixels = true;
+                    opaquePixelCount++;
                 }
             }
         }
 
         let croppedUrl = url;
+        let finalW = width;
+        let finalH = height;
+
         // 如果有透明邊界需要裁切
         if (hasPixels && (minX > 0 || minY > 0 || maxX < width - 1 || maxY < height - 1)) {
-            const finalW = maxX - minX + 1;
-            const finalH = maxY - minY + 1;
+            finalW = maxX - minX + 1;
+            finalH = maxY - minY + 1;
             const cropCanvas = document.createElement('canvas');
             cropCanvas.width = finalW;
             cropCanvas.height = finalH;
@@ -77,8 +82,16 @@ const CropperHandler = {
         const img = document.getElementById('cropImage');
         img.src = croppedUrl;
 
+        // 計算裁切後的透明區域比例
+        const totalPixels = finalW * finalH;
+        const transparentRatio = (totalPixels - opaquePixelCount) / totalPixels;
+
         appState.showCrop = true;
-        appState.cropStatus = '請調整裁剪區域';
+        if (transparentRatio > 0.4) {
+             appState.cropStatus = `⚠️ 圖片透明區域達 ${(transparentRatio * 100).toFixed(0)}%，可能影響辨識！請盡量保留更多實體地圖畫面，或裁切掉透明區域。`;
+        } else {
+             appState.cropStatus = '請調整裁剪區域';
+        }
 
         await yieldToUI();
 
