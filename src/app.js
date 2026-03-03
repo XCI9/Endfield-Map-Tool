@@ -118,6 +118,16 @@ function App() {
                     }
                 }
             });
+
+            // ── Keyboard shortcuts ──
+            document.addEventListener('keydown', (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+                    if (this.showCrop) {
+                        e.preventDefault();
+                        this.selectAllCrop();
+                    }
+                }
+            });
         },
 
         // ── Map selection ──
