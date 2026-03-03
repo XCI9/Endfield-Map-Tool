@@ -26,9 +26,56 @@ const CropperHandler = {
         cropMode = 'input';
         currentFileCallback = (canvas) => Matcher.processScreenshotAfterCrop(appState, canvas);
 
+        const imgObj = new Image();
         const url = URL.createObjectURL(file);
+        
+        await new Promise((resolve, reject) => {
+            imgObj.onload = resolve;
+            imgObj.onerror = reject;
+            imgObj.src = url;
+        });
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = imgObj.width;
+        tempCanvas.height = imgObj.height;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(imgObj, 0, 0);
+
+        const width = tempCanvas.width;
+        const height = tempCanvas.height;
+        const data = ctx.getImageData(0, 0, width, height).data;
+
+        let minX = width, minY = height, maxX = 0, maxY = 0;
+        let hasPixels = false;
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (data[(y * width + x) * 4 + 3] > 0) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    hasPixels = true;
+                }
+            }
+        }
+
+        let croppedUrl = url;
+        // 如果有透明邊界需要裁切
+        if (hasPixels && (minX > 0 || minY > 0 || maxX < width - 1 || maxY < height - 1)) {
+            const finalW = maxX - minX + 1;
+            const finalH = maxY - minY + 1;
+            const cropCanvas = document.createElement('canvas');
+            cropCanvas.width = finalW;
+            cropCanvas.height = finalH;
+            cropCanvas.getContext('2d').drawImage(tempCanvas, minX, minY, finalW, finalH, 0, 0, finalW, finalH);
+            
+            const blob = await new Promise(resolve => cropCanvas.toBlob(resolve, 'image/png'));
+            croppedUrl = URL.createObjectURL(blob);
+        }
+
         const img = document.getElementById('cropImage');
-        img.src = url;
+        img.src = croppedUrl;
 
         appState.showCrop = true;
         appState.cropStatus = '請調整裁剪區域';
