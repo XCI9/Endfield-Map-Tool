@@ -312,9 +312,6 @@ const Matcher = {
                 appState.hasOutput = true;
                 CanvasManager.resetView(appState.showOriginalBase);
 
-                roi.delete();
-                clippedSub.delete();
-                finalSub.delete();
             } else {
                 appState.statusText = '❌ 找不到匹配位置，請嘗試其他截圖或檢查內容';
             }
