@@ -257,12 +257,12 @@
                     <p>請問該截圖在畫面上的應該呈現的<strong>實際大小</strong>，相較於目前的辨識結果：</p>
                     <div class="radio-group" style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px; text-align: left;">
                         <label>
-                            <input type="radio" value="smaller" v-model="rematchType">
-                            更小 (應該縮小圖片)
-                        </label>
-                        <label>
                             <input type="radio" value="larger" v-model="rematchType">
                             更大 (應該放大圖片)
+                        </label>
+                        <label>
+                            <input type="radio" value="smaller" v-model="rematchType">
+                            更小 (應該縮小圖片)
                         </label>
                         <label style="color: #888; font-size: 0.9em; margin-top: 5px;">
                             註: 如果是差不多大小，由於本工具針對相同輸入辨識結果會相同，因此較難直接處理，請重新調整截圖範圍、減少截圖上的透明圖層佔比或嘗試隱藏截圖上一些基建圖示，再重新上傳

@@ -21,7 +21,7 @@ function App() {
         showPreviewModal: false,
         showConfirmModal: false,
         showRematchModal: false,
-        rematchType: 'smaller',
+        rematchType: 'larger',
         showInstructions: true,
         showUpdateLog: false,
         isLoadingBaseMap: false,
@@ -154,7 +154,7 @@ function App() {
         undoLastAction()            { History.undoLastAction(this); },
         openRematchModal() {
             if (!this.canUndo || this.isProcessing) return;
-            this.rematchType = 'smaller';
+            this.rematchType = 'larger';
             this.showRematchModal = true;
         },
         async confirmRematch() {
