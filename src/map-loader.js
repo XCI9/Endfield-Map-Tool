@@ -4,6 +4,54 @@
 // ─────────────────────────────────────────────
 
 const MapLoader = {
+    processGrayBase(sourceMat) {
+        const gray = new cv.Mat();
+        cv.cvtColor(sourceMat, gray, cv.COLOR_RGBA2GRAY);
+
+        const planes = new cv.MatVector();
+        cv.split(sourceMat, planes);
+        const alphaMask = planes.get(3).clone();
+        for (let i = 0; i < planes.size(); i++) planes.get(i).delete();
+        planes.delete();
+
+        const totalPixels = gray.rows * gray.cols;
+        const opaquePixels = cv.countNonZero(alphaMask);
+
+        // Fill transparent regions with a specific color #6c6c6c (108 in decimal)
+        // 此顏色為大地圖上周邊區域的灰色 (The gray color of the surrounding area on the base map)
+        if (opaquePixels > 0 && opaquePixels < totalPixels) {
+            const invMask = new cv.Mat();
+            cv.bitwise_not(alphaMask, invMask);
+            
+            // Fast boundary color propagation using downsampled inpainting
+            const smallWidth = Math.min(256, gray.cols);
+            const smallHeight = Math.max(1, Math.round((gray.rows / gray.cols) * smallWidth));
+            
+            const smallGray = new cv.Mat();
+            const smallMask = new cv.Mat();
+            
+            cv.resize(gray, smallGray, new cv.Size(smallWidth, smallHeight), 0, 0, cv.INTER_AREA);
+            cv.resize(invMask, smallMask, new cv.Size(smallWidth, smallHeight), 0, 0, cv.INTER_NEAREST);
+            
+            const smallInpainted = new cv.Mat();
+            cv.inpaint(smallGray, smallMask, smallInpainted, 3, cv.INPAINT_TELEA);
+            
+            const largeInpainted = new cv.Mat();
+            cv.resize(smallInpainted, largeInpainted, new cv.Size(gray.cols, gray.rows), 0, 0, cv.INTER_LINEAR);
+            
+            largeInpainted.copyTo(gray, invMask);
+            
+            smallGray.delete();
+            smallMask.delete();
+            smallInpainted.delete();
+            largeInpainted.delete();
+            invMask.delete();
+        }
+
+        alphaMask.delete();
+        return gray;
+    },
+
     async loadBaseMapFromAsset(appState, mapKey) {
         const mapInfo = MAPS[mapKey] || MAPS.map02;
         appState.statusText = `⏳ 載入基底地圖 ${mapInfo.name} 中...`;
@@ -45,8 +93,8 @@ const MapLoader = {
 
         baseMat = cv.imread(canvas);
         originalBaseMat = baseMat.clone();
-        grayBase = new cv.Mat();
-        cv.cvtColor(baseMat, grayBase, cv.COLOR_RGBA2GRAY);
+        if (grayBase && !grayBase.isDeleted()) grayBase.delete();
+        grayBase = this.processGrayBase(baseMat);
 
         CanvasManager.syncBaseCanvasSizes();
         cv.imshow('baseCanvas', baseMat);
