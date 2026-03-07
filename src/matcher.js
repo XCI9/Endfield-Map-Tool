@@ -9,6 +9,7 @@ const Matcher = {
         // Use caller-supplied pre-scaled base when available (avoids re-resizing
         // the same image for every candidate at the same level)
         let scaledBase, ownScaledBase;
+        
         if (_preScaledBase) {
             scaledBase = _preScaledBase;
             ownScaledBase = false;
@@ -205,7 +206,7 @@ const Matcher = {
                 let levelResults = [];
 
                 if (i === 0) {
-                    levelResults = await this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, null, level.scaleRange, level.step, level.status, null, matchMask);
+                    levelResults = await this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, null, level.scaleRange, level.step, level.status, null, matchMask, null);
                 } else {
                     // Pre-scale base ONCE for this level, then share it across all candidate
                     // calls – eliminates O(candidates − 1) redundant cv.resize() operations

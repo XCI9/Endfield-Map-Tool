@@ -34,45 +34,31 @@
             }
         }
 
-        let processedTemplate = templateImg;
-        if (templateMask) {
-            processedTemplate = templateImg.clone();
-            const invMask = new cv.Mat();
-            cv.bitwise_not(templateMask, invMask);
-
-            const smallWidth = Math.min(256, processedTemplate.cols);
-            const smallHeight = Math.max(1, Math.round((processedTemplate.rows / processedTemplate.cols) * smallWidth));
-
-            const smallGray = new cv.Mat();
-            const smallMask = new cv.Mat();
-            cv.resize(processedTemplate, smallGray, new cv.Size(smallWidth, smallHeight), 0, 0, cv.INTER_AREA);
-            cv.resize(invMask, smallMask, new cv.Size(smallWidth, smallHeight), 0, 0, cv.INTER_NEAREST);
-
-            const smallInpainted = new cv.Mat();
-            cv.inpaint(smallGray, smallMask, smallInpainted, 3, cv.INPAINT_TELEA);
-
-            const largeInpainted = new cv.Mat();
-            cv.resize(smallInpainted, largeInpainted, new cv.Size(processedTemplate.cols, processedTemplate.rows), 0, 0, cv.INTER_LINEAR);
-
-            largeInpainted.copyTo(processedTemplate, invMask);
-
-            smallGray.delete();
-            smallMask.delete();
-            smallInpainted.delete();
-            largeInpainted.delete();
-            invMask.delete();
-        }
-
         for (const s of scales) {
             if (globalBestVal >= EARLY_EXIT_THRESHOLD) break; // Near-perfect match – no point checking more scales
 
             const finalS = s * scaleDownRes;
-            const newWidth = Math.round(processedTemplate.cols * finalS);
-            const newHeight = Math.round(processedTemplate.rows * finalS);
+            const newWidth = Math.round(templateImg.cols * finalS);
+            const newHeight = Math.round(templateImg.rows * finalS);
             if (newWidth < 20 || newHeight < 20) continue;
 
             const resizedSub = new cv.Mat();
-            cv.resize(processedTemplate, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
+            cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
+
+            // 當存在透明遮罩時，將透明像素填入 #6c6c6c (108) 來與大地圖周圍背景一致，
+            // 這樣匹配時就不會因為背景色差而在交界處產生虛假特徵邊緣。
+            if (templateMask) {
+                const resizedMask = new cv.Mat();
+                cv.resize(templateMask, resizedMask, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_NEAREST);
+
+                const invMask = new cv.Mat();
+                cv.bitwise_not(resizedMask, invMask);
+                const fillMat = new cv.Mat(newHeight, newWidth, resizedSub.type(), new cv.Scalar(108));
+                fillMat.copyTo(resizedSub, invMask);
+                fillMat.delete();
+                invMask.delete();
+                resizedMask.delete();
+            }
 
             for (const roiInfo of roisWithType) {
                 const searchRoiMat = roiInfo.mat; // Reuse pre-extracted sub-Mat
@@ -102,10 +88,6 @@
         // Release only the sub-Mats we created; never delete searchBase itself
         for (const roiInfo of roisWithType) {
             if (roiInfo.rect) roiInfo.mat.delete();
-        }
-
-        if (processedTemplate !== templateImg) {
-            processedTemplate.delete();
         }
 
         return allResults;

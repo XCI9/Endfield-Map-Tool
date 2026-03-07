@@ -54,16 +54,15 @@ function performTemplateMatch(payload) {
         baseData, 
         templateData,
         maskData,
-        scaleDownRes, 
-        roiCandidates, 
-        scaleRange, 
-        step 
+        scaleDownRes,
+        roiCandidates,
+        scaleRange,
+        step
     } = payload;
 
     const searchBase = createMatFromData(baseData);
     const templateImg = createMatFromData(templateData);
     const templateMask = maskData ? createMatFromData(maskData) : null;
-
     let scalesToCheck = [];
     if (payload.scales) {
         scalesToCheck = payload.scales;
@@ -80,7 +79,7 @@ function performTemplateMatch(payload) {
          throw new Error("runTemplateMatch not loaded");
     }
 
-    const allResults = self.runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scalesToCheck, templateMask);
+const allResults = self.runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scalesToCheck, templateMask);
 
     searchBase.delete();
     templateImg.delete();

@@ -4,52 +4,141 @@
 // ─────────────────────────────────────────────
 
 const MapLoader = {
-    processGrayBase(sourceMat) {
-        const gray = new cv.Mat();
-        cv.cvtColor(sourceMat, gray, cv.COLOR_RGBA2GRAY);
-
+    extractAlphaMask(sourceMat) {
         const planes = new cv.MatVector();
         cv.split(sourceMat, planes);
         const alphaMask = planes.get(3).clone();
         for (let i = 0; i < planes.size(); i++) planes.get(i).delete();
         planes.delete();
+        return alphaMask;
+    },
 
-        const totalPixels = gray.rows * gray.cols;
-        const opaquePixels = cv.countNonZero(alphaMask);
+    propagateEdgeGrayValues(grayMat, alphaMask) {
+        const grayData = grayMat.data;
+        const alphaData = alphaMask.data;
+        const total = grayData.length;
+        const sums = new Float32Array(total);
+        const counts = new Uint8Array(total);
+        const rows = grayMat.rows;
+        const cols = grayMat.cols;
 
-        // Fill transparent regions with a specific color #6c6c6c (108 in decimal)
-        // 此顏色為大地圖上周邊區域的灰色 (The gray color of the surrounding area on the base map)
-        if (opaquePixels > 0 && opaquePixels < totalPixels) {
-            const invMask = new cv.Mat();
-            cv.bitwise_not(alphaMask, invMask);
-            
-            // Fast boundary color propagation using downsampled inpainting
-            const smallWidth = Math.min(256, gray.cols);
-            const smallHeight = Math.max(1, Math.round((gray.rows / gray.cols) * smallWidth));
-            
-            const smallGray = new cv.Mat();
-            const smallMask = new cv.Mat();
-            
-            cv.resize(gray, smallGray, new cv.Size(smallWidth, smallHeight), 0, 0, cv.INTER_AREA);
-            cv.resize(invMask, smallMask, new cv.Size(smallWidth, smallHeight), 0, 0, cv.INTER_NEAREST);
-            
-            const smallInpainted = new cv.Mat();
-            cv.inpaint(smallGray, smallMask, smallInpainted, 3, cv.INPAINT_TELEA);
-            
-            const largeInpainted = new cv.Mat();
-            cv.resize(smallInpainted, largeInpainted, new cv.Size(gray.cols, gray.rows), 0, 0, cv.INTER_LINEAR);
-            
-            largeInpainted.copyTo(gray, invMask);
-            
-            smallGray.delete();
-            smallMask.delete();
-            smallInpainted.delete();
-            largeInpainted.delete();
-            invMask.delete();
+        for (let x = 0; x < cols; x++) {
+            let lastSeen = -1;
+            for (let y = 0; y < rows; y++) {
+                const idx = y * cols + x;
+                if (alphaData[idx] > 0) {
+                    lastSeen = grayData[idx];
+                } else if (lastSeen >= 0) {
+                    sums[idx] += lastSeen;
+                    counts[idx] += 1;
+                }
+            }
+
+            lastSeen = -1;
+            for (let y = rows - 1; y >= 0; y--) {
+                const idx = y * cols + x;
+                if (alphaData[idx] > 0) {
+                    lastSeen = grayData[idx];
+                } else if (lastSeen >= 0) {
+                    sums[idx] += lastSeen;
+                    counts[idx] += 1;
+                }
+            }
         }
 
-        alphaMask.delete();
-        return gray;
+        for (let y = 0; y < rows; y++) {
+            let lastSeen = -1;
+            const rowOffset = y * cols;
+            for (let x = 0; x < cols; x++) {
+                const idx = rowOffset + x;
+                if (alphaData[idx] > 0) {
+                    lastSeen = grayData[idx];
+                } else if (lastSeen >= 0) {
+                    sums[idx] += lastSeen;
+                    counts[idx] += 1;
+                }
+            }
+
+            lastSeen = -1;
+            for (let x = cols - 1; x >= 0; x--) {
+                const idx = rowOffset + x;
+                if (alphaData[idx] > 0) {
+                    lastSeen = grayData[idx];
+                } else if (lastSeen >= 0) {
+                    sums[idx] += lastSeen;
+                    counts[idx] += 1;
+                }
+            }
+        }
+
+        for (let idx = 0; idx < total; idx++) {
+            if (alphaData[idx] > 0) continue;
+            grayData[idx] = counts[idx] > 0 ? Math.round(sums[idx] / counts[idx]) : 108;
+        }
+    },
+
+    fillTransparentGrayFromEdges(grayMat, alphaMask) {
+        const alphaData = alphaMask.data;
+        let opaquePixels = 0;
+        for (let i = 0; i < alphaData.length; i++) {
+            if (alphaData[i] > 0) opaquePixels += 1;
+        }
+
+        if (opaquePixels === 0 || opaquePixels === alphaData.length) return;
+
+        this.propagateEdgeGrayValues(grayMat, alphaMask);
+
+        const grayData = grayMat.data;
+        const original = new Uint8Array(grayData);
+        const rows = grayMat.rows;
+        const cols = grayMat.cols;
+
+        for (let y = 0; y < rows; y++) {
+            const rowOffset = y * cols;
+            for (let x = 0; x < cols; x++) {
+                const idx = rowOffset + x;
+                if (alphaData[idx] > 0) continue;
+
+                let sum = original[idx];
+                let count = 1;
+
+                if (x > 0) {
+                    sum += original[idx - 1];
+                    count += 1;
+                }
+                if (x + 1 < cols) {
+                    sum += original[idx + 1];
+                    count += 1;
+                }
+                if (y > 0) {
+                    sum += original[idx - cols];
+                    count += 1;
+                }
+                if (y + 1 < rows) {
+                    sum += original[idx + cols];
+                    count += 1;
+                }
+
+                grayData[idx] = Math.round(sum / count);
+            }
+        }
+    },
+
+    processGrayBase(sourceMat, alphaMask = null) {
+        const gray = new cv.Mat();
+        const ownAlphaMask = !alphaMask;
+        const resolvedAlphaMask = alphaMask || this.extractAlphaMask(sourceMat);
+
+        try {
+            cv.cvtColor(sourceMat, gray, cv.COLOR_RGBA2GRAY);
+            this.fillTransparentGrayFromEdges(gray, resolvedAlphaMask);
+            return gray;
+        } catch (error) {
+            gray.delete();
+            throw new Error(`processGrayBase failed: ${error?.message || error}`);
+        } finally {
+            if (ownAlphaMask) resolvedAlphaMask.delete();
+        }
     },
 
     async loadBaseMapFromAsset(appState, mapKey) {
@@ -77,44 +166,52 @@ const MapLoader = {
             return;
         }
 
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        canvas.getContext('2d').drawImage(img, 0, 0);
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            canvas.getContext('2d').drawImage(img, 0, 0);
 
-        // Yield before heavy sync work so the DOM can reflect isLoadingBaseMap=true
-        // (disabled state) before the event loop freezes.
-        await yieldToUI();
+            // Yield before heavy sync work so the DOM can reflect isLoadingBaseMap=true
+            // (disabled state) before the event loop freezes.
+            await yieldToUI();
 
-        if (baseMat) baseMat.delete();
-        if (originalBaseMat) originalBaseMat.delete();
-        if (grayBase) grayBase.delete();
-        if (searchBase) searchBase.delete();
+            if (baseMat) baseMat.delete();
+            if (originalBaseMat) originalBaseMat.delete();
+            if (grayBase) grayBase.delete();
+            if (searchBase) searchBase.delete();
 
-        baseMat = cv.imread(canvas);
-        originalBaseMat = baseMat.clone();
-        if (grayBase && !grayBase.isDeleted()) grayBase.delete();
-        grayBase = this.processGrayBase(baseMat);
+            baseMat = cv.imread(canvas);
+            originalBaseMat = baseMat.clone();
+            if (grayBase && !grayBase.isDeleted()) grayBase.delete();
+            const alphaMask = this.extractAlphaMask(baseMat);
+            grayBase = this.processGrayBase(baseMat, alphaMask);
+            alphaMask.delete();
 
-        CanvasManager.syncBaseCanvasSizes();
-        cv.imshow('baseCanvas', baseMat);
-        cv.imshow('originalBaseCanvas', originalBaseMat);
+            CanvasManager.syncBaseCanvasSizes();
+            cv.imshow('baseCanvas', baseMat);
+            cv.imshow('originalBaseCanvas', originalBaseMat);
 
-        appState.history = [];
-        appState.canUndo = false;
+            appState.history = [];
+            appState.canUndo = false;
 
-        CanvasManager.resetOverlayCanvas();
-        appState.hasOutput = true;
-        CanvasManager.resetView(appState.showOriginalBase);
-        CanvasManager.renderView(appState.showOriginalBase);
-        ExportHandler.updatePreview(appState);
-        appState.statusText = `✅ 基底地圖已載入：${mapInfo.name}，請上傳截圖`;
+            CanvasManager.resetOverlayCanvas();
+            appState.hasOutput = true;
+            CanvasManager.resetView(appState.showOriginalBase);
+            CanvasManager.renderView(appState.showOriginalBase);
+            ExportHandler.updatePreview(appState);
+            appState.statusText = `✅ 基底地圖已載入：${mapInfo.name}，請上傳截圖`;
 
-        // Yield again before clearing the flag. Any click events that were queued
-        // during the synchronous OpenCV work above will fire HERE — while
-        // isLoadingBaseMap is still true — so the JS-level guards can catch them.
-        await yieldToUI();
-        appState.isLoadingBaseMap = false;
+            // Yield again before clearing the flag. Any click events that were queued
+            // during the synchronous OpenCV work above will fire HERE — while
+            // isLoadingBaseMap is still true — so the JS-level guards can catch them.
+            await yieldToUI();
+        } catch (error) {
+            console.error('Failed to process base map', error);
+            appState.statusText = '❌ 基底地圖處理失敗，請重新整理後再試';
+        } finally {
+            appState.isLoadingBaseMap = false;
+        }
     },
 
     async selectMap(appState, key) {

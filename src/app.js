@@ -196,7 +196,12 @@ const app = createApp({ App }).mount('#app');
 
 window.__opencvReady = async () => {
     if (window.__appState?.onOpenCvReady) {
-        await window.__appState.onOpenCvReady();
+        try {
+            await window.__appState.onOpenCvReady();
+        } catch (error) {
+            console.error('OpenCV initialization failed', error);
+            if (window.__appState) window.__appState.statusText = '❌ OpenCV 初始化失敗';
+        }
     } else {
         window.__opencvPending = true;
     }
