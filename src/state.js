@@ -16,6 +16,7 @@ const yieldToUI = () => new Promise((resolve) => requestAnimationFrame(() => res
 let baseMat = null;
 let originalBaseMat = null;
 let grayBase = null;
+let baseAlphaMask = null;
 let searchBase = null;
 
 // ── Canvas elements ──

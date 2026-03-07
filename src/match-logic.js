@@ -1,10 +1,30 @@
 // Shared matching logic for both Main Thread and Worker
 
 (function(global) {
+    const MAX_BASE_TRANSPARENT_RATIO = 0.2;
+
+    function exceedsBaseTransparencyLimit(cv, searchBaseMaskMat, x, y, width, height) {
+        if (!searchBaseMaskMat) return false;
+
+        const clampedX = Math.max(0, x);
+        const clampedY = Math.max(0, y);
+        const clampedWidth = Math.min(width, searchBaseMaskMat.cols - clampedX);
+        const clampedHeight = Math.min(height, searchBaseMaskMat.rows - clampedY);
+        if (clampedWidth <= 0 || clampedHeight <= 0) return true;
+
+        const rect = new cv.Rect(clampedX, clampedY, clampedWidth, clampedHeight);
+        const maskRoi = searchBaseMaskMat.roi(rect);
+        const opaquePixels = cv.countNonZero(maskRoi);
+        maskRoi.delete();
+
+        const totalPixels = clampedWidth * clampedHeight;
+        const transparentRatio = 1 - (opaquePixels / totalPixels);
+        return transparentRatio > MAX_BASE_TRANSPARENT_RATIO;
+    }
     
     // Core template matching function
     // Depends on 'cv' being available
-    function runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask) {
+    function runTemplateMatch(cv, searchBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask, searchBaseMask) {
         const EARLY_EXIT_THRESHOLD = 0.97; // Skip remaining scales on near-perfect match
         let allResults = [];
         let globalBestVal = -1;
@@ -14,7 +34,7 @@
         // now we pay that cost only O(ROIs) times.
         let roisWithType = [];
         if (!roiCandidates || roiCandidates.length === 0) {
-            roisWithType.push({ rect: null, mat: searchBase, offsetX: 0, offsetY: 0 });
+            roisWithType.push({ rect: null, mat: searchBase, maskMat: searchBaseMask, offsetX: 0, offsetY: 0 });
         } else {
             for (const cand of roiCandidates) {
                 const roiX = Math.max(0, Math.round(cand.x));
@@ -27,6 +47,7 @@
                     roisWithType.push({
                         rect,
                         mat: searchBase.roi(rect), // Sub-Mat pre-extracted once
+                        maskMat: searchBaseMask ? searchBaseMask.roi(rect) : null,
                         offsetX: roiX,
                         offsetY: roiY
                     });
@@ -71,12 +92,16 @@
                 const minMax = cv.minMaxLoc(res);
                 res.delete();
 
+                const matchX = minMax.maxLoc.x;
+                const matchY = minMax.maxLoc.y;
+                if (exceedsBaseTransparencyLimit(cv, roiInfo.maskMat, matchX, matchY, resizedSub.cols, resizedSub.rows)) continue;
+
                 if (minMax.maxVal > globalBestVal) globalBestVal = minMax.maxVal;
                 allResults.push({
                     val: minMax.maxVal,
                     loc: {
-                        x: minMax.maxLoc.x + roiInfo.offsetX,
-                        y: minMax.maxLoc.y + roiInfo.offsetY
+                        x: matchX + roiInfo.offsetX,
+                        y: matchY + roiInfo.offsetY
                     },
                     scale: s
                 });
@@ -87,7 +112,10 @@
 
         // Release only the sub-Mats we created; never delete searchBase itself
         for (const roiInfo of roisWithType) {
-            if (roiInfo.rect) roiInfo.mat.delete();
+            if (roiInfo.rect) {
+                roiInfo.mat.delete();
+                if (roiInfo.maskMat) roiInfo.maskMat.delete();
+            }
         }
 
         return allResults;

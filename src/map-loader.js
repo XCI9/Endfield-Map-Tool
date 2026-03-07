@@ -179,12 +179,14 @@ const MapLoader = {
             if (baseMat) baseMat.delete();
             if (originalBaseMat) originalBaseMat.delete();
             if (grayBase) grayBase.delete();
+            if (baseAlphaMask) baseAlphaMask.delete();
             if (searchBase) searchBase.delete();
 
             baseMat = cv.imread(canvas);
             originalBaseMat = baseMat.clone();
             if (grayBase && !grayBase.isDeleted()) grayBase.delete();
             const alphaMask = this.extractAlphaMask(baseMat);
+            baseAlphaMask = alphaMask.clone();
             grayBase = this.processGrayBase(baseMat, alphaMask);
             alphaMask.delete();
 

@@ -5,10 +5,12 @@
 // ─────────────────────────────────────────────
 
 const Matcher = {
-    async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix, _preScaledBase = null, templateMaskRef = null) {
+    async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix, _preScaledBase = null, templateMaskRef = null, _preScaledBaseAlphaMask = null) {
         // Use caller-supplied pre-scaled base when available (avoids re-resizing
         // the same image for every candidate at the same level)
         let scaledBase, ownScaledBase;
+        let scaledBaseAlphaMask = null;
+        let ownScaledBaseAlphaMask = false;
         
         if (_preScaledBase) {
             scaledBase = _preScaledBase;
@@ -17,6 +19,16 @@ const Matcher = {
             scaledBase = new cv.Mat();
             cv.resize(baseMatRef, scaledBase, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_AREA);
             ownScaledBase = true;
+        }
+
+        if (baseAlphaMask && !baseAlphaMask.isDeleted()) {
+            if (_preScaledBaseAlphaMask) {
+                scaledBaseAlphaMask = _preScaledBaseAlphaMask;
+            } else {
+                scaledBaseAlphaMask = new cv.Mat();
+                cv.resize(baseAlphaMask, scaledBaseAlphaMask, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_NEAREST);
+                ownScaledBaseAlphaMask = true;
+            }
         }
 
         // Build scale list
@@ -31,15 +43,17 @@ const Matcher = {
         }
 
         if (scales.length === 0) {
-            scaledBase.delete();
+            if (ownScaledBase) scaledBase.delete();
+            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
             return [];
         }
 
         // Fallback to main thread if no workers
         if (workers.length === 0 || scales.length < 2) {
             console.warn('No workers available, running on main thread');
-            const results = this.runMatchLocal(scaledBase, templateMatRef, scaleDownRes, roiCandidates, scales, templateMaskRef);
+            const results = this.runMatchLocal(scaledBase, templateMatRef, scaleDownRes, roiCandidates, scales, templateMaskRef, scaledBaseAlphaMask);
             if (ownScaledBase) scaledBase.delete();
+            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
             return results;
         }
 
@@ -50,11 +64,17 @@ const Matcher = {
         // Use SharedArrayBuffer if available (zero-copy across workers)
         const useSharedBuffer = typeof SharedArrayBuffer !== 'undefined';
 
-        let baseData, templateData, maskData;
+        let baseData, baseAlphaMaskData = null, templateData, maskData;
         if (useSharedBuffer) {
             const baseBuf = new SharedArrayBuffer(scaledBase.data.length);
             new Uint8Array(baseBuf).set(scaledBase.data);
             baseData = new Uint8Array(baseBuf);
+
+            if (scaledBaseAlphaMask) {
+                const baseAlphaMaskBuf = new SharedArrayBuffer(scaledBaseAlphaMask.data.length);
+                new Uint8Array(baseAlphaMaskBuf).set(scaledBaseAlphaMask.data);
+                baseAlphaMaskData = new Uint8Array(baseAlphaMaskBuf);
+            }
 
             const tplBuf = new SharedArrayBuffer(templateMatRef.data.length);
             new Uint8Array(tplBuf).set(templateMatRef.data);
@@ -67,11 +87,13 @@ const Matcher = {
             }
         } else {
             baseData = new Uint8Array(scaledBase.data);
+            if (scaledBaseAlphaMask) baseAlphaMaskData = new Uint8Array(scaledBaseAlphaMask.data);
             templateData = new Uint8Array(templateMatRef.data);
             if (templateMaskRef) maskData = new Uint8Array(templateMaskRef.data);
         }
 
         const basePayload = { rows: scaledBase.rows, cols: scaledBase.cols, type: scaledBase.type(), data: baseData };
+        const baseAlphaMaskPayload = scaledBaseAlphaMask ? { rows: scaledBaseAlphaMask.rows, cols: scaledBaseAlphaMask.cols, type: scaledBaseAlphaMask.type(), data: baseAlphaMaskData } : null;
         const templatePayload = { rows: templateMatRef.rows, cols: templateMatRef.cols, type: templateMatRef.type(), data: templateData };
         const maskPayload = templateMaskRef ? { rows: templateMaskRef.rows, cols: templateMaskRef.cols, type: templateMaskRef.type(), data: maskData } : null;
 
@@ -85,7 +107,7 @@ const Matcher = {
             worker.addEventListener('message', handleMsg);
             worker.postMessage({
                 cmd: 'match', id,
-                payload: { baseData: basePayload, templateData: templatePayload, maskData: maskPayload, scaleDownRes, roiCandidates, scaleRange: { min: 0, max: 0 }, scales: chunks[index], step }
+                payload: { baseData: basePayload, baseAlphaMaskData: baseAlphaMaskPayload, templateData: templatePayload, maskData: maskPayload, scaleDownRes, roiCandidates, scaleRange: { min: 0, max: 0 }, scales: chunks[index], step }
             });
         }));
 
@@ -94,17 +116,19 @@ const Matcher = {
         try {
             const allResults = (await Promise.all(promises)).flat();
             if (ownScaledBase) scaledBase.delete();
+            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
             return this._deduplicateResults(allResults, 5);
         } catch (e) {
             console.error('Worker error', e);
             if (ownScaledBase) scaledBase.delete();
+            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
             return [];
         }
     },
 
-    runMatchLocal(scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask) {
+    runMatchLocal(scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask, searchBaseAlphaMask = null) {
         if (window.runTemplateMatch) {
-            return window.runTemplateMatch(cv, scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask);
+            return window.runTemplateMatch(cv, scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask, searchBaseAlphaMask);
         }
         console.error('match-logic.js not loaded');
         return [];
@@ -160,7 +184,7 @@ const Matcher = {
 
             let currentScaleRes = SCALE_DOWN;
 
-            const globalScaleRange = { min: 0.5, max: 5 };
+            const globalScaleRange = { min: 0.8, max: 5 };
             if (customLevel0Override && customLevel0Override.scaleRange) {
                 globalScaleRange.min = customLevel0Override.scaleRange.min;
                 globalScaleRange.max = customLevel0Override.scaleRange.max;
@@ -212,6 +236,11 @@ const Matcher = {
                     // calls – eliminates O(candidates − 1) redundant cv.resize() operations
                     const levelScaledBase = new cv.Mat();
                     cv.resize(grayBase, levelScaledBase, new cv.Size(), level.scaleRes, level.scaleRes, cv.INTER_AREA);
+                    let levelScaledBaseAlphaMask = null;
+                    if (baseAlphaMask && !baseAlphaMask.isDeleted()) {
+                        levelScaledBaseAlphaMask = new cv.Mat();
+                        cv.resize(baseAlphaMask, levelScaledBaseAlphaMask, new cv.Size(), level.scaleRes, level.scaleRes, cv.INTER_NEAREST);
+                    }
 
                     appState.statusText = `⏳ ${level.status} (檢查 ${nextRoiCandidates.length} 個候選位置)...`;
 
@@ -222,12 +251,13 @@ const Matcher = {
                             min: Math.max(globalScaleRange.min, roiCand.baseScale - level.scaleRange.range),
                             max: Math.min(globalScaleRange.max, roiCand.baseScale + level.scaleRange.range)
                         };
-                        return this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`, levelScaledBase, matchMask);
+                        return this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`, levelScaledBase, matchMask, levelScaledBaseAlphaMask);
                     });
 
                     const subResults = await Promise.all(candidatePromises);
                     levelResults = subResults.flat();
                     levelScaledBase.delete();
+                    if (levelScaledBaseAlphaMask) levelScaledBaseAlphaMask.delete();
                 }
 
                 levelResults = levelResults.filter(r => r.val >= level.threshold);
