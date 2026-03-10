@@ -4,12 +4,24 @@
 // ─────────────────────────────────────────────
 
 const MapLoader = {
+    drawBaseCanvasesFromSource(sourceCanvas) {
+        if (baseCanvas && baseCtx) {
+            baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+            baseCtx.drawImage(sourceCanvas, 0, 0, baseCanvas.width, baseCanvas.height);
+        }
+        if (originalBaseCanvas && originalBaseCtx) {
+            originalBaseCtx.clearRect(0, 0, originalBaseCanvas.width, originalBaseCanvas.height);
+            originalBaseCtx.drawImage(sourceCanvas, 0, 0, originalBaseCanvas.width, originalBaseCanvas.height);
+        }
+    },
+
     extractAlphaMask(sourceMat) {
-        const planes = new cv.MatVector();
-        cv.split(sourceMat, planes);
-        const alphaMask = planes.get(3).clone();
-        for (let i = 0; i < planes.size(); i++) planes.get(i).delete();
-        planes.delete();
+        const alphaMask = new cv.Mat(sourceMat.rows, sourceMat.cols, cv.CV_8UC1);
+        const src = sourceMat.data;
+        const dst = alphaMask.data;
+        for (let i = 0, j = 3; i < dst.length; i++, j += 4) {
+            dst[i] = src[j];
+        }
         return alphaMask;
     },
 
@@ -166,6 +178,11 @@ const MapLoader = {
             return;
         }
 
+        let nextBaseMat = null;
+        let nextGrayBase = null;
+        let nextBaseAlphaMask = null;
+        let alphaMask = null;
+
         try {
             const canvas = document.createElement('canvas');
             canvas.width = img.width;
@@ -176,23 +193,37 @@ const MapLoader = {
             // (disabled state) before the event loop freezes.
             await yieldToUI();
 
-            if (baseMat) baseMat.delete();
-            if (originalBaseMat) originalBaseMat.delete();
-            if (grayBase) grayBase.delete();
-            if (baseAlphaMask) baseAlphaMask.delete();
-            if (searchBase) searchBase.delete();
+            try {
+                nextBaseMat = cv.imread(canvas);
+                if (!isMatAvailable(nextBaseMat)) {
+                    throw new Error('cv.imread returned an invalid Mat');
+                }
 
-            baseMat = cv.imread(canvas);
-            originalBaseMat = baseMat.clone();
-            if (grayBase && !grayBase.isDeleted()) grayBase.delete();
-            const alphaMask = this.extractAlphaMask(baseMat);
-            baseAlphaMask = alphaMask.clone();
-            grayBase = this.processGrayBase(baseMat, alphaMask);
-            alphaMask.delete();
+                alphaMask = this.extractAlphaMask(nextBaseMat);
+                nextBaseAlphaMask = alphaMask.clone();
+                nextGrayBase = this.processGrayBase(nextBaseMat, alphaMask);
+            } catch (error) {
+                throw new Error(`prepare base mats failed: ${error?.message || error}`);
+            } finally {
+                alphaMask = safeDeleteMat(alphaMask);
+            }
+
+            baseMat = safeDeleteMat(baseMat);
+            originalBaseMat = safeDeleteMat(originalBaseMat);
+            grayBase = safeDeleteMat(grayBase);
+            baseAlphaMask = safeDeleteMat(baseAlphaMask);
+            searchBase = safeDeleteMat(searchBase);
+
+            baseMat = nextBaseMat;
+            originalBaseMat = null;
+            grayBase = nextGrayBase;
+            baseAlphaMask = nextBaseAlphaMask;
+            nextBaseMat = null;
+            nextGrayBase = null;
+            nextBaseAlphaMask = null;
 
             CanvasManager.syncBaseCanvasSizes();
-            cv.imshow('baseCanvas', baseMat);
-            cv.imshow('originalBaseCanvas', originalBaseMat);
+            this.drawBaseCanvasesFromSource(canvas);
 
             appState.history = [];
             appState.canUndo = false;
@@ -209,7 +240,16 @@ const MapLoader = {
             // isLoadingBaseMap is still true — so the JS-level guards can catch them.
             await yieldToUI();
         } catch (error) {
-            console.error('Failed to process base map', error);
+            nextBaseMat = safeDeleteMat(nextBaseMat);
+            nextGrayBase = safeDeleteMat(nextGrayBase);
+            nextBaseAlphaMask = safeDeleteMat(nextBaseAlphaMask);
+            alphaMask = safeDeleteMat(alphaMask);
+            console.error('Failed to process base map', error, {
+                mapKey,
+                mapName: mapInfo.name,
+                imageWidth: img.width,
+                imageHeight: img.height,
+            });
             appState.statusText = '❌ 基底地圖處理失敗，請重新整理後再試';
         } finally {
             appState.isLoadingBaseMap = false;

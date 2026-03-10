@@ -21,7 +21,7 @@ const Matcher = {
             ownScaledBase = true;
         }
 
-        if (baseAlphaMask && !baseAlphaMask.isDeleted()) {
+        if (isMatAvailable(baseAlphaMask)) {
             if (_preScaledBaseAlphaMask) {
                 scaledBaseAlphaMask = _preScaledBaseAlphaMask;
             } else {
@@ -237,7 +237,7 @@ const Matcher = {
                     const levelScaledBase = new cv.Mat();
                     cv.resize(grayBase, levelScaledBase, new cv.Size(), level.scaleRes, level.scaleRes, cv.INTER_AREA);
                     let levelScaledBaseAlphaMask = null;
-                    if (baseAlphaMask && !baseAlphaMask.isDeleted()) {
+                    if (isMatAvailable(baseAlphaMask)) {
                         levelScaledBaseAlphaMask = new cv.Mat();
                         cv.resize(baseAlphaMask, levelScaledBaseAlphaMask, new cv.Size(), level.scaleRes, level.scaleRes, cv.INTER_NEAREST);
                     }
@@ -316,7 +316,7 @@ const Matcher = {
                     
                     // Sync perfectly composited canvas BACK to OpenCV memory
                     const newBaseMat = cv.imread(baseCanvas);
-                    baseMat.delete();
+                    baseMat = safeDeleteMat(baseMat);
                     baseMat = newBaseMat;
                 }
 
@@ -347,7 +347,7 @@ const Matcher = {
                 appState.statusText = '❌ 找不到匹配位置，請嘗試其他截圖或檢查內容';
             }
 
-            if (searchBase && !searchBase.isDeleted()) searchBase.delete();
+            searchBase = safeDeleteMat(searchBase);
             subMat.delete();
             graySub.delete();
             alphaMask.delete();

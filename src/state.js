@@ -12,6 +12,25 @@ const MAPS = {
 
 const yieldToUI = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
+function safeDeleteMat(mat) {
+    if (!mat) return null;
+    try {
+        if (typeof mat.delete === 'function') mat.delete();
+    } catch (_error) {
+        // Ignore stale OpenCV proxy objects that have already been released.
+    }
+    return null;
+}
+
+function isMatAvailable(mat) {
+    if (!mat) return false;
+    try {
+        return typeof mat.rows === 'number' && typeof mat.cols === 'number';
+    } catch (_error) {
+        return false;
+    }
+}
+
 // ── OpenCV Mats ──
 let baseMat = null;
 let originalBaseMat = null;

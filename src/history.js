@@ -11,9 +11,10 @@ const History = {
         appState.history.pop();
         appState.canUndo = appState.history.length > 0;
 
-        // Restore baseMat from original
-        if (baseMat) baseMat.delete();
-        baseMat = originalBaseMat.clone();
+        // Restore baseMat from the pristine original base canvas
+        if (!originalBaseCanvas) return;
+        baseMat = safeDeleteMat(baseMat);
+        baseMat = cv.imread(originalBaseCanvas);
 
         CanvasManager.resetOverlayCanvas();
 
@@ -33,7 +34,7 @@ const History = {
 
             // Sync baseMat back from the perfectly blended baseCanvas so memory matches screen
             const newBaseMat = cv.imread(baseCanvas);
-            baseMat.delete();
+            baseMat = safeDeleteMat(baseMat);
             baseMat = newBaseMat;
         }
 

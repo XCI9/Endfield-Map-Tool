@@ -10,9 +10,9 @@ const CanvasManager = {
             baseCanvas.width = baseMat.cols;
             baseCanvas.height = baseMat.rows;
         }
-        if (originalBaseCanvas && originalBaseMat) {
-            originalBaseCanvas.width = originalBaseMat.cols;
-            originalBaseCanvas.height = originalBaseMat.rows;
+        if (originalBaseCanvas) {
+            originalBaseCanvas.width = baseMat.cols;
+            originalBaseCanvas.height = baseMat.rows;
         }
         if (overlayCanvas) {
             if (overlayCanvas.width !== baseMat.cols || overlayCanvas.height !== baseMat.rows) {
