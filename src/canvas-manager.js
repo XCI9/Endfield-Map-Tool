@@ -4,15 +4,35 @@
 // ─────────────────────────────────────────────
 
 const CanvasManager = {
+    hasCanvasContent(canvas) {
+        return !!(canvas && canvas.width > 0 && canvas.height > 0);
+    },
+
+    getViewSourceCanvas(showOriginalBase) {
+        if (showOriginalBase) {
+            if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
+            if (this.hasCanvasContent(baseCanvas)) return baseCanvas;
+            return null;
+        }
+
+        if (this.hasCanvasContent(baseCanvas)) return baseCanvas;
+        if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
+        return null;
+    },
+
     syncBaseCanvasSizes() {
         if (!baseMat) return;
         if (baseCanvas) {
-            baseCanvas.width = baseMat.cols;
-            baseCanvas.height = baseMat.rows;
+            if (baseCanvas.width !== baseMat.cols || baseCanvas.height !== baseMat.rows) {
+                baseCanvas.width = baseMat.cols;
+                baseCanvas.height = baseMat.rows;
+            }
         }
         if (originalBaseCanvas) {
-            originalBaseCanvas.width = baseMat.cols;
-            originalBaseCanvas.height = baseMat.rows;
+            if (originalBaseCanvas.width !== baseMat.cols || originalBaseCanvas.height !== baseMat.rows) {
+                originalBaseCanvas.width = baseMat.cols;
+                originalBaseCanvas.height = baseMat.rows;
+            }
         }
         if (overlayCanvas) {
             if (overlayCanvas.width !== baseMat.cols || overlayCanvas.height !== baseMat.rows) {
@@ -37,7 +57,7 @@ const CanvasManager = {
     },
 
     renderView(showOriginalBase) {
-        const sourceCanvas = showOriginalBase ? baseCanvas : overlayCanvas;
+        const sourceCanvas = this.getViewSourceCanvas(showOriginalBase);
         if (!outputCanvas || !sourceCanvas || !outputCtx) return;
         this.updateMinScale(showOriginalBase);
         this.clampViewOffset(showOriginalBase);
@@ -46,11 +66,14 @@ const CanvasManager = {
         outputCtx.translate(viewOffset.x, viewOffset.y);
         outputCtx.scale(viewScale, viewScale);
         outputCtx.drawImage(sourceCanvas, 0, 0);
+        if (showOriginalBase && hasOverlay && this.hasCanvasContent(overlayCanvas)) {
+            outputCtx.drawImage(overlayCanvas, 0, 0);
+        }
         outputCtx.restore();
     },
 
     updateMinScale(showOriginalBase) {
-        const sourceCanvas = showOriginalBase ? baseCanvas : overlayCanvas;
+        const sourceCanvas = this.getViewSourceCanvas(showOriginalBase);
         if (!outputCanvas || !sourceCanvas) return;
         const viewWidth = outputCanvas.width || outputCanvas.clientWidth;
         const viewHeight = outputCanvas.height || outputCanvas.clientHeight;
@@ -73,7 +96,7 @@ const CanvasManager = {
     },
 
     clampViewOffset(showOriginalBase) {
-        const sourceCanvas = showOriginalBase ? baseCanvas : overlayCanvas;
+        const sourceCanvas = this.getViewSourceCanvas(showOriginalBase);
         if (!outputCanvas || !sourceCanvas) return;
         const viewWidth = outputCanvas.width || outputCanvas.clientWidth;
         const viewHeight = outputCanvas.height || outputCanvas.clientHeight;
