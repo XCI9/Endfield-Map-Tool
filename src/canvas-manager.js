@@ -4,6 +4,25 @@
 // ─────────────────────────────────────────────
 
 const CanvasManager = {
+    getBaseDimensions() {
+        if (isMatAvailable(grayBase)) {
+            return { width: grayBase.cols, height: grayBase.rows };
+        }
+        if (isMatAvailable(baseAlphaMask)) {
+            return { width: baseAlphaMask.cols, height: baseAlphaMask.rows };
+        }
+        if (isMatAvailable(baseMat)) {
+            return { width: baseMat.cols, height: baseMat.rows };
+        }
+        if (this.hasCanvasContent(baseCanvas)) {
+            return { width: baseCanvas.width, height: baseCanvas.height };
+        }
+        if (this.hasCanvasContent(originalBaseCanvas)) {
+            return { width: originalBaseCanvas.width, height: originalBaseCanvas.height };
+        }
+        return null;
+    },
+
     hasCanvasContent(canvas) {
         return !!(canvas && canvas.width > 0 && canvas.height > 0);
     },
@@ -21,37 +40,39 @@ const CanvasManager = {
     },
 
     syncBaseCanvasSizes() {
-        if (!baseMat) return;
+        const dims = this.getBaseDimensions();
+        if (!dims) return;
         if (baseCanvas) {
-            if (baseCanvas.width !== baseMat.cols || baseCanvas.height !== baseMat.rows) {
-                baseCanvas.width = baseMat.cols;
-                baseCanvas.height = baseMat.rows;
+            if (baseCanvas.width !== dims.width || baseCanvas.height !== dims.height) {
+                baseCanvas.width = dims.width;
+                baseCanvas.height = dims.height;
             }
         }
         if (originalBaseCanvas) {
-            if (originalBaseCanvas.width !== baseMat.cols || originalBaseCanvas.height !== baseMat.rows) {
-                originalBaseCanvas.width = baseMat.cols;
-                originalBaseCanvas.height = baseMat.rows;
+            if (originalBaseCanvas.width !== dims.width || originalBaseCanvas.height !== dims.height) {
+                originalBaseCanvas.width = dims.width;
+                originalBaseCanvas.height = dims.height;
             }
         }
         if (overlayCanvas) {
-            if (overlayCanvas.width !== baseMat.cols || overlayCanvas.height !== baseMat.rows) {
-                overlayCanvas.width = baseMat.cols;
-                overlayCanvas.height = baseMat.rows;
+            if (overlayCanvas.width !== dims.width || overlayCanvas.height !== dims.height) {
+                overlayCanvas.width = dims.width;
+                overlayCanvas.height = dims.height;
             }
         }
     },
 
     resetOverlayCanvas() {
-        if (!overlayCanvas || !baseMat) return;
-        overlayCanvas.width = baseMat.cols;
-        overlayCanvas.height = baseMat.rows;
+        const dims = this.getBaseDimensions();
+        if (!overlayCanvas || !dims) return;
+        overlayCanvas.width = dims.width;
+        overlayCanvas.height = dims.height;
         overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         hasOverlay = false;
     },
 
     updateOverlayCanvas(compositeCanvas, rect) {
-        if (!overlayCanvas || !overlayCtx || !baseMat) return;
+        if (!overlayCanvas || !overlayCtx) return;
         overlayCtx.drawImage(compositeCanvas, rect.x, rect.y, rect.width, rect.height);
         hasOverlay = true;
     },

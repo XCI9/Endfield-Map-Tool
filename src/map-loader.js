@@ -200,8 +200,9 @@ const MapLoader = {
                 }
 
                 alphaMask = this.extractAlphaMask(nextBaseMat);
-                nextBaseAlphaMask = alphaMask.clone();
                 nextGrayBase = this.processGrayBase(nextBaseMat, alphaMask);
+                nextBaseAlphaMask = alphaMask;
+                alphaMask = null;
             } catch (error) {
                 throw new Error(`prepare base mats failed: ${error?.message || error}`);
             } finally {
@@ -214,11 +215,11 @@ const MapLoader = {
             baseAlphaMask = safeDeleteMat(baseAlphaMask);
             searchBase = safeDeleteMat(searchBase);
 
-            baseMat = nextBaseMat;
+            baseMat = null;
             originalBaseMat = null;
             grayBase = nextGrayBase;
             baseAlphaMask = nextBaseAlphaMask;
-            nextBaseMat = null;
+            nextBaseMat = safeDeleteMat(nextBaseMat);
             nextGrayBase = null;
             nextBaseAlphaMask = null;
 

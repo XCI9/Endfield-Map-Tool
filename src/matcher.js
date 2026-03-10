@@ -5,6 +5,22 @@
 // ─────────────────────────────────────────────
 
 const Matcher = {
+    extractAlphaMask(sourceMat) {
+        const alphaMask = new cv.Mat(sourceMat.rows, sourceMat.cols, cv.CV_8UC1);
+        const src = sourceMat.data;
+        const dst = alphaMask.data;
+        for (let i = 0, j = 3; i < dst.length; i++, j += 4) {
+            dst[i] = src[j];
+        }
+        return alphaMask;
+    },
+
+    getBaseSize() {
+        const dims = CanvasManager.getBaseDimensions();
+        if (dims) return dims;
+        return { width: 0, height: 0 };
+    },
+
     async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix, _preScaledBase = null, templateMaskRef = null, _preScaledBaseAlphaMask = null) {
         // Use caller-supplied pre-scaled base when available (avoids re-resizing
         // the same image for every candidate at the same level)
@@ -164,13 +180,9 @@ const Matcher = {
             const subMat = cv.imread(canvas);
 
             // ── Transparency handling ─────────────────────────────────────────
-            // Extract alpha channel once; reused as matchTemplate mask and
-            // compositing mask.
-            const rgbaPlanes = new cv.MatVector();
-            cv.split(subMat, rgbaPlanes);
-            const alphaMask = rgbaPlanes.get(3).clone();
-            for (let i = 0; i < rgbaPlanes.size(); i++) rgbaPlanes.get(i).delete();
-            rgbaPlanes.delete();
+            // Extract alpha channel once without cv.split() to avoid 4 extra
+            // full-size temporary channel Mats.
+            const alphaMask = this.extractAlphaMask(subMat);
 
             // Detect if image actually has transparent pixels.
             // If fully opaque → matchMask = null (skip mask overhead entirely)
@@ -285,11 +297,12 @@ const Matcher = {
                 const finalW = Math.round(subMat.cols * bestScale);
                 const finalH = Math.round(subMat.rows * bestScale);
 
+                const baseSize = this.getBaseSize();
                 const rect = new cv.Rect(
                     Math.max(0, finalX),
                     Math.max(0, finalY),
-                    Math.min(finalW, baseMat.cols - finalX),
-                    Math.min(finalH, baseMat.rows - finalY)
+                    Math.min(finalW, baseSize.width - finalX),
+                    Math.min(finalH, baseSize.height - finalY)
                 );
 
                 // Use pure DOM Canvas to resize the original image! 
@@ -303,21 +316,15 @@ const Matcher = {
                 hCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, finalW, finalH);
 
                 CanvasManager.syncBaseCanvasSizes(); 
-                cv.imshow('baseCanvas', baseMat);
                 
                 // Do NOT use OpenCV copyTo for merging the alpha image, as it causes black jagged edges.
                 // Draw onto visual canvas directly.
-                if (baseCanvas) {
-                    baseCanvas.getContext('2d').drawImage(
+                if (baseCanvas && baseCtx) {
+                    baseCtx.drawImage(
                         historyCanvas, 
                         0, 0, rect.width, rect.height, 
                         rect.x, rect.y, rect.width, rect.height
                     );
-                    
-                    // Sync perfectly composited canvas BACK to OpenCV memory
-                    const newBaseMat = cv.imread(baseCanvas);
-                    baseMat = safeDeleteMat(baseMat);
-                    baseMat = newBaseMat;
                 }
 
                 CanvasManager.updateOverlayCanvas(historyCanvas, rect);
