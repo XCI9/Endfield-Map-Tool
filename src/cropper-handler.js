@@ -5,6 +5,248 @@
 // ─────────────────────────────────────────────
 
 const CropperHandler = {
+    _cloneCanvas(sourceCanvas) {
+        const cloned = document.createElement('canvas');
+        cloned.width = sourceCanvas.width;
+        cloned.height = sourceCanvas.height;
+        cloned.getContext('2d').drawImage(sourceCanvas, 0, 0);
+        return cloned;
+    },
+
+    _updateCropHistoryState(appState) {
+        appState.cropCanUndo = !!(appState.cropEditUndoStack && appState.cropEditUndoStack.length > 0);
+        appState.cropCanRedo = !!(appState.cropEditRedoStack && appState.cropEditRedoStack.length > 0);
+    },
+
+    _resetCropEditState(appState) {
+        appState.cropEditMode = false;
+        appState.cropCanUndo = false;
+        appState.cropCanRedo = false;
+        appState.cropEditUndoStack = [];
+        appState.cropEditRedoStack = [];
+        appState.cropEditIsDrawing = false;
+        appState.cropEditSourceCanvas = null;
+        appState.cropEditOriginalCanvas = null;
+        appState.cropEditSavedCropData = null;
+        appState.cropEditTransform = null;
+        appState.cropEditLastPoint = null;
+    },
+
+    _pushCropUndoSnapshot(appState) {
+        if (!appState.cropEditSourceCanvas) return;
+        const ctx = appState.cropEditSourceCanvas.getContext('2d', { willReadFrequently: true });
+        appState.cropEditUndoStack.push(ctx.getImageData(0, 0, appState.cropEditSourceCanvas.width, appState.cropEditSourceCanvas.height));
+        if (appState.cropEditUndoStack.length > 20) appState.cropEditUndoStack.shift();
+        appState.cropEditRedoStack = [];
+        this._updateCropHistoryState(appState);
+    },
+
+    _getCropperOptions(cropModeValue) {
+        if (cropModeValue === 'preview') {
+            return {
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 1,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: false,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: false,
+            };
+        }
+
+        return {
+            viewMode: 1,
+            movable: true,
+            zoomable: true,
+            scalable: false,
+            rotatable: false,
+            restore: false,
+            toggleDragModeOnDblclick: false,
+        };
+    },
+
+    async _loadCropSourceCanvas(appState, sourceCanvas) {
+        appState.cropEditSourceCanvas = this._cloneCanvas(sourceCanvas);
+        appState.cropEditOriginalCanvas = this._cloneCanvas(sourceCanvas);
+        appState.cropEditUndoStack = [];
+        appState.cropEditRedoStack = [];
+        appState.cropEditSavedCropData = null;
+        appState.cropEditIsDrawing = false;
+        appState.cropEditTransform = null;
+        appState.cropEditLastPoint = null;
+        this._updateCropHistoryState(appState);
+        await this._rebuildCropperFromSource(appState, null);
+    },
+
+    async _rebuildCropperFromSource(appState, preservedCropData = null) {
+        if (!appState.cropEditSourceCanvas) return;
+
+        const image = document.getElementById('cropImage');
+        if (!image) return;
+
+        appState.cropEditMode = false;
+        image.src = appState.cropEditSourceCanvas.toDataURL('image/png');
+
+        await new Promise((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = reject;
+        });
+
+        if (appState.cropper) {
+            appState.cropper.destroy();
+            appState.cropper = null;
+        }
+
+        await new Promise((resolve) => {
+            const options = this._getCropperOptions(cropMode);
+            const originalReady = options.ready;
+            options.ready = () => {
+                if (typeof originalReady === 'function') originalReady();
+                if (preservedCropData) appState.cropper.setData(preservedCropData);
+                resolve();
+            };
+            appState.cropper = new Cropper(image, options);
+        });
+    },
+
+    _getCropEditPoint(appState, event) {
+        if (!appState.cropEditMode || !appState.cropEditTransform) return null;
+        const canvas = document.getElementById('cropEditCanvas');
+        if (!canvas) return null;
+
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const { scale, offsetX, offsetY, width, height } = appState.cropEditTransform;
+        const sourceX = (x - offsetX) / scale;
+        const sourceY = (y - offsetY) / scale;
+
+        if (sourceX < 0 || sourceY < 0 || sourceX > width || sourceY > height) return null;
+        return { x: sourceX, y: sourceY };
+    },
+
+    _eraseAtPoint(appState, fromPoint, toPoint) {
+        if (!appState.cropEditSourceCanvas) return;
+        const ctx = appState.cropEditSourceCanvas.getContext('2d');
+        const scale = appState.cropEditTransform?.scale || 1;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(0,0,0,1)';
+        ctx.fillStyle = 'rgba(0,0,0,1)';
+        ctx.lineWidth = Math.max(1, appState.cropBrushSize / scale);
+
+        if (fromPoint && toPoint) {
+            ctx.beginPath();
+            ctx.moveTo(fromPoint.x, fromPoint.y);
+            ctx.lineTo(toPoint.x, toPoint.y);
+            ctx.stroke();
+        }
+
+        const targetPoint = toPoint || fromPoint;
+        if (targetPoint) {
+            ctx.beginPath();
+            ctx.arc(targetPoint.x, targetPoint.y, ctx.lineWidth / 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    },
+
+    _drawCheckerboard(ctx, x, y, width, height, appState) {
+        if (!this._bgImage) {
+            this._bgImage = new Image();
+            this._bgImage.onload = () => {
+                this._checkerPattern = null;
+                if (appState && appState.cropEditMode) {
+                    this.renderCropEditCanvas(appState);
+                }
+            };
+            this._bgImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAQMAAAAlPW0iAAAAA3NCSVQICAjb4U/gAAAABlBMVEXMzMz////TjRV2AAAACXBIWXMAAArrAAAK6wGCiw1aAAAAHHRFWHRTb2Z0d2FyZQBBZG9iZSBGaXJld29ya3MgQ1M26LyyjAAAABFJREFUCJlj+M/AgBVhF/0PAH6/D/HkDxOGAAAAAElFTkSuQmCC';
+        }
+
+        if (this._bgImage.complete && this._bgImage.width > 0) {
+            if (!this._checkerPattern) {
+                this._checkerPattern = ctx.createPattern(this._bgImage, 'repeat');
+            }
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.fillStyle = this._checkerPattern;
+            ctx.fillRect(0, 0, width, height);
+            
+            // 加入一層半透明黑色遮罩，使其與外部裁剪顯示更接近
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, width, height);
+            
+            ctx.restore();
+        } else {
+            ctx.save();
+            ctx.fillStyle = '#eee';
+            ctx.fillRect(x, y, width, height);
+            ctx.restore();
+        }
+    },
+
+    updateCropEditCursor(appState) {
+        const canvas = document.getElementById('cropEditCanvas');
+        if (!canvas) return;
+
+        if (!appState.cropEditMode) {
+            canvas.style.cursor = 'default';
+            return;
+        }
+
+        const brushSize = Math.max(8, Number(appState.cropBrushSize) || 36);
+        const cursorSize = Math.min(128, Math.max(24, Math.ceil(brushSize + 10)));
+        const radius = Math.max(2, brushSize / 2);
+        const center = cursorSize / 2;
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="${cursorSize}" height="${cursorSize}" viewBox="0 0 ${cursorSize} ${cursorSize}">
+                <circle cx="${center}" cy="${center}" r="${radius}" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.95)" stroke-width="1.5"/>
+                <circle cx="${center}" cy="${center}" r="1.5" fill="rgba(255,255,255,0.95)"/>
+            </svg>`;
+        canvas.style.cursor = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;
+    },
+
+    renderCropEditCanvas(appState) {
+        if (!appState.cropEditMode || !appState.cropEditSourceCanvas) return;
+
+        const canvas = document.getElementById('cropEditCanvas');
+        const wrapper = document.querySelector('.crop-wrapper');
+        if (!canvas || !wrapper) return;
+
+        const width = Math.max(1, Math.floor(wrapper.clientWidth || appState.cropEditSourceCanvas.width));
+        const height = Math.max(1, Math.floor(wrapper.clientHeight || appState.cropEditSourceCanvas.height));
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, width, height);
+
+        const scale = Math.min(width / appState.cropEditSourceCanvas.width, height / appState.cropEditSourceCanvas.height);
+        const drawWidth = appState.cropEditSourceCanvas.width * scale;
+        const drawHeight = appState.cropEditSourceCanvas.height * scale;
+        const offsetX = (width - drawWidth) / 2;
+        const offsetY = (height - drawHeight) / 2;
+
+        appState.cropEditTransform = {
+            scale,
+            offsetX,
+            offsetY,
+            width: appState.cropEditSourceCanvas.width,
+            height: appState.cropEditSourceCanvas.height
+        };
+
+        this._drawCheckerboard(ctx, offsetX, offsetY, drawWidth, drawHeight, appState);
+        ctx.drawImage(appState.cropEditSourceCanvas, offsetX, offsetY, drawWidth, drawHeight);
+        this.updateCropEditCursor(appState);
+    },
+
     openFilePicker(appState) {
         if (appState.isProcessing || appState.isLoadingBaseMap) return;
         appState.$refs.subFile.value = '';
@@ -30,7 +272,10 @@ const CropperHandler = {
         const url = URL.createObjectURL(file);
         
         await new Promise((resolve, reject) => {
-            imgObj.onload = resolve;
+            imgObj.onload = () => {
+                URL.revokeObjectURL(url);
+                resolve();
+            };
             imgObj.onerror = reject;
             imgObj.src = url;
         });
@@ -62,7 +307,7 @@ const CropperHandler = {
             }
         }
 
-        let croppedUrl = url;
+        let finalCanvas = tempCanvas;
         let finalW = width;
         let finalH = height;
 
@@ -74,13 +319,8 @@ const CropperHandler = {
             cropCanvas.width = finalW;
             cropCanvas.height = finalH;
             cropCanvas.getContext('2d').drawImage(tempCanvas, minX, minY, finalW, finalH, 0, 0, finalW, finalH);
-            
-            const blob = await new Promise(resolve => cropCanvas.toBlob(resolve, 'image/png'));
-            croppedUrl = URL.createObjectURL(blob);
+            finalCanvas = cropCanvas;
         }
-
-        const img = document.getElementById('cropImage');
-        img.src = croppedUrl;
 
         // 計算裁切後的透明區域比例
         const totalPixels = finalW * finalH;
@@ -94,29 +334,106 @@ const CropperHandler = {
         }
 
         await yieldToUI();
-
-        if (appState.cropper) appState.cropper.destroy();
-
-        appState.cropper = new Cropper(img, {
-            viewMode: 1,
-            movable: true,
-            zoomable: true,
-            scalable: false,
-            rotatable: false,
-            restore: false,
-            toggleDragModeOnDblclick: false,
-        });
+        await this._loadCropSourceCanvas(appState, finalCanvas);
     },
 
     resetCrop(appState) {
+        if (appState.cropEditMode) {
+            if (!appState.cropEditOriginalCanvas) return;
+            appState.cropEditSourceCanvas = this._cloneCanvas(appState.cropEditOriginalCanvas);
+            appState.cropEditUndoStack = [];
+            appState.cropEditRedoStack = [];
+            this._updateCropHistoryState(appState);
+            appState.cropStatus = '橡皮擦模式：在圖片上拖曳即可擦除。';
+            this.renderCropEditCanvas(appState);
+            return;
+        }
         if (appState.cropper) appState.cropper.reset();
     },
 
     selectAllCrop(appState) {
+        if (appState.cropEditMode) return;
         if (appState.cropper) {
             const data = appState.cropper.getImageData();
             appState.cropper.setData({ x: 0, y: 0, width: data.naturalWidth, height: data.naturalHeight });
         }
+    },
+
+    async toggleCropEditMode(appState) {
+        if (!appState.showCrop || !appState.cropEditSourceCanvas) return;
+
+        if (!appState.cropEditMode) {
+            appState.cropEditSavedCropData = appState.cropper ? appState.cropper.getData(true) : null;
+            if (appState.cropper) {
+                appState.cropper.destroy();
+                appState.cropper = null;
+            }
+            appState.cropEditMode = true;
+            appState.cropStatus = '橡皮擦模式：在圖片上拖曳即可擦除。';
+            await yieldToUI();
+            this.renderCropEditCanvas(appState);
+            return;
+        }
+
+        appState.cropEditMode = false;
+        appState.cropStatus = '請調整裁剪區域';
+        this.updateCropEditCursor(appState);
+        await yieldToUI();
+        await this._rebuildCropperFromSource(appState, appState.cropEditSavedCropData);
+    },
+
+    undoCropEdit(appState) {
+        if (!appState.cropEditMode || !appState.cropEditSourceCanvas || !appState.cropEditUndoStack?.length) return;
+        const ctx = appState.cropEditSourceCanvas.getContext('2d', { willReadFrequently: true });
+        appState.cropEditRedoStack.push(ctx.getImageData(0, 0, appState.cropEditSourceCanvas.width, appState.cropEditSourceCanvas.height));
+        const previous = appState.cropEditUndoStack.pop();
+        ctx.putImageData(previous, 0, 0);
+        this._updateCropHistoryState(appState);
+        this.renderCropEditCanvas(appState);
+    },
+
+    redoCropEdit(appState) {
+        if (!appState.cropEditMode || !appState.cropEditSourceCanvas || !appState.cropEditRedoStack?.length) return;
+        const ctx = appState.cropEditSourceCanvas.getContext('2d', { willReadFrequently: true });
+        appState.cropEditUndoStack.push(ctx.getImageData(0, 0, appState.cropEditSourceCanvas.width, appState.cropEditSourceCanvas.height));
+        const next = appState.cropEditRedoStack.pop();
+        ctx.putImageData(next, 0, 0);
+        this._updateCropHistoryState(appState);
+        this.renderCropEditCanvas(appState);
+    },
+
+    startCropErase(appState, event) {
+        if (!appState.cropEditMode) return;
+        const canvas = document.getElementById('cropEditCanvas');
+        if (!canvas) return;
+
+        const point = this._getCropEditPoint(appState, event);
+        if (!point) return;
+
+        event.preventDefault();
+        this._pushCropUndoSnapshot(appState);
+        appState.cropEditIsDrawing = true;
+        appState.cropEditLastPoint = point;
+        canvas.setPointerCapture?.(event.pointerId);
+        this._eraseAtPoint(appState, point, point);
+        this.renderCropEditCanvas(appState);
+    },
+
+    moveCropErase(appState, event) {
+        if (!appState.cropEditMode || !appState.cropEditIsDrawing) return;
+        const point = this._getCropEditPoint(appState, event);
+        if (!point) return;
+
+        event.preventDefault();
+        this._eraseAtPoint(appState, appState.cropEditLastPoint, point);
+        appState.cropEditLastPoint = point;
+        this.renderCropEditCanvas(appState);
+    },
+
+    endCropErase(appState) {
+        if (!appState.cropEditMode) return;
+        appState.cropEditIsDrawing = false;
+        appState.cropEditLastPoint = null;
     },
 
     cancelCrop(appState) {
@@ -125,10 +442,14 @@ const CropperHandler = {
             appState.cropper.destroy();
             appState.cropper = null;
         }
+        this._resetCropEditState(appState);
         appState.cropStatus = '請拖拽選擇要裁剪的區域';
     },
 
     async confirmCrop(appState) {
+        if (appState.cropEditMode) {
+            await this.toggleCropEditMode(appState);
+        }
         if (!appState.cropper) return;
 
         const croppedCanvas = appState.cropper.getCroppedCanvas();
@@ -147,6 +468,7 @@ const CropperHandler = {
             };
             appState.showCrop = false;
             if (appState.cropper) { appState.cropper.destroy(); appState.cropper = null; }
+            this._resetCropEditState(appState);
             appState.cropStatus = '請拖拽選擇要裁剪的區域';
             ExportHandler.updatePreview(appState);
             return;
@@ -154,6 +476,7 @@ const CropperHandler = {
 
         appState.showCrop = false;
         if (appState.cropper) { appState.cropper.destroy(); appState.cropper = null; }
+        this._resetCropEditState(appState);
         appState.cropStatus = '請拖拽選擇要裁剪的區域';
 
         await new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -170,29 +493,10 @@ const CropperHandler = {
         }
         cropMode = 'preview';
 
-        const blob = await new Promise(resolve => previewCanvas.toBlob(resolve));
-        const url = URL.createObjectURL(blob);
-        const image = document.getElementById('cropImage');
-        image.src = url;
-
         appState.showCrop = true;
         appState.cropStatus = '請拖拽選擇要裁剪的區域';
-
-        if (appState.cropper) appState.cropper.destroy();
-        await new Promise(r => setTimeout(r, 50));
-
-        appState.cropper = new Cropper(image, {
-            viewMode: 1,
-            dragMode: 'move',
-            autoCropArea: 1,
-            restore: false,
-            guides: true,
-            center: true,
-            highlight: false,
-            cropBoxMovable: true,
-            cropBoxResizable: true,
-            toggleDragModeOnDblclick: false,
-        });
+        await yieldToUI();
+        await this._loadCropSourceCanvas(appState, previewCanvas);
     },
 
     clearPreviewCrop(appState) {

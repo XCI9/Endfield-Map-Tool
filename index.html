@@ -231,11 +231,25 @@
 
         <div id="cropModal" class="crop-modal" v-show="showCrop">
             <div class="crop-container">
-                <h3>裁剪圖片</h3>
-                <div class="crop-status">{{ cropStatus }}</div>
+                <div class="crop-header">
+                    <div class="crop-title-group">
+                        <h3>裁剪圖片</h3>
+                        <div class="crop-status">{{ cropStatus }}</div>
+                    </div>
+                    <div class="crop-edit-toolbar">
+                        <label v-if="cropEditMode" class="brush-size-control">
+                            <span>筆刷 {{ cropBrushSize }}px</span>
+                            <input type="range" v-model="cropBrushSize" min="8" max="120" step="1" @input="refreshCropBrushCursor">
+                        </label>
+                        <button v-if="cropEditMode" @click="undoCropEdit" :disabled="!cropCanUndo">復原</button>
+                        <button v-if="cropEditMode" @click="redoCropEdit" :disabled="!cropCanRedo">取消復原</button>
+                        <button :class="{ active: cropEditMode }" @click="toggleCropEditMode">{{ cropEditMode ? '完成擦除' : '橡皮擦' }}</button>
+                    </div>
+                </div>
                 <div class="crop-wrapper-outer">
                     <div class="crop-wrapper">
                         <img id="cropImage" src="" alt="Crop Preview">
+                        <canvas id="cropEditCanvas" :class="{ hidden: !cropEditMode }"></canvas>
                     </div>
                 </div>
                 <div class="crop-controls">

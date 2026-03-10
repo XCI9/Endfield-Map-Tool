@@ -332,6 +332,25 @@ body {
     max-height: 90vh;
     overflow: auto;
     border: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+}
+
+.crop-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.crop-container h3 {
+    margin: 0;
+}
+
+.crop-title-group {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .crop-canvas {
@@ -343,7 +362,7 @@ body {
 }
 
 .crop-status {
-    margin: 8px 0 12px;
+    margin: 6px 0 0;
     color: var(--warn);
 }
 
@@ -389,6 +408,7 @@ body {
 }
 
 .crop-wrapper {
+    position: relative;
     width: 100%;
     height: 100%;
 }
@@ -396,6 +416,53 @@ body {
 #cropImage {
     display: block;
     max-width: 100%;
+}
+
+#cropEditCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    touch-action: none;
+}
+
+.crop-edit-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-bottom: 0;
+}
+
+.crop-edit-toolbar button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    background: #3a3a3a;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.crop-edit-toolbar button.active {
+    background: var(--accent);
+}
+
+.crop-edit-toolbar button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.brush-size-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+}
+
+.brush-size-control input[type="range"] {
+    width: 180px;
 }
 
 

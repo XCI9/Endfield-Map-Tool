@@ -11,7 +11,13 @@ function App() {
         // ── Reactive UI state ──
         statusText: '正在初始化... ',
         cropStatus: '請拖拽選擇要裁剪的區域',
+        cropper: null,
         showCrop: false,
+        cropEditMode: false,
+        cropCanUndo: false,
+        cropCanRedo: false,
+        cropBrushSize: 36,
+        cropEditOriginalCanvas: null,
         isProcessing: false,
         isDragging: false,
         hasOutput: false,
@@ -75,6 +81,15 @@ function App() {
             dropZoneEl = document.getElementById('dropZone');
             contentEl = document.querySelector('.content');
             toolbarEl = document.querySelector('.toolbar');
+            const cropEditCanvas = document.getElementById('cropEditCanvas');
+
+            if (cropEditCanvas) {
+                cropEditCanvas.addEventListener('pointerdown', (e) => CropperHandler.startCropErase(this, e));
+                cropEditCanvas.addEventListener('pointermove', (e) => CropperHandler.moveCropErase(this, e));
+                cropEditCanvas.addEventListener('pointerup', () => CropperHandler.endCropErase(this));
+                cropEditCanvas.addEventListener('pointercancel', () => CropperHandler.endCropErase(this));
+                cropEditCanvas.addEventListener('pointerleave', () => CropperHandler.endCropErase(this));
+            }
 
             // ── Drop zone events ──
             const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
@@ -127,7 +142,20 @@ function App() {
                         this.selectAllCrop();
                     }
                 }
+
+                if (!this.showCrop || !this.cropEditMode) return;
+
+                const key = e.key.toLowerCase();
+                if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z') {
+                    e.preventDefault();
+                    this.undoCropEdit();
+                } else if ((e.ctrlKey || e.metaKey) && (key === 'y' || (e.shiftKey && key === 'z'))) {
+                    e.preventDefault();
+                    this.redoCropEdit();
+                }
             });
+
+            window.addEventListener('resize', () => CropperHandler.renderCropEditCanvas(this));
         },
 
         // ── Map selection ──
@@ -145,6 +173,10 @@ function App() {
         onSubFileChange(e)          { CropperHandler.onSubFileChange(this, e); },
         resetCrop()                 { CropperHandler.resetCrop(this); },
         selectAllCrop()             { CropperHandler.selectAllCrop(this); },
+        async toggleCropEditMode()  { await CropperHandler.toggleCropEditMode(this); },
+        refreshCropBrushCursor()    { CropperHandler.updateCropEditCursor(this); },
+        undoCropEdit()              { CropperHandler.undoCropEdit(this); },
+        redoCropEdit()              { CropperHandler.redoCropEdit(this); },
         cancelCrop()                { CropperHandler.cancelCrop(this); },
         async confirmCrop()         { await CropperHandler.confirmCrop(this); },
         async openPreviewCrop()     { await CropperHandler.openPreviewCrop(this); },
