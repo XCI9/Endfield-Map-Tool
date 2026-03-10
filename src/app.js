@@ -55,7 +55,7 @@ function App() {
 
         init() {
             // ── Workers ──
-            if (window.Worker) {
+            if (window.Worker && ENABLE_MATCH_WORKERS) {
                 workers.forEach(w => w.terminate());
                 workers = [];
                 const coreCount = navigator.hardwareConcurrency || 2;
@@ -65,6 +65,10 @@ function App() {
                     try { workers.push(new Worker('src/worker.js')); }
                     catch (e) { console.error('Failed to init worker', e); }
                 }
+            } else {
+                workers.forEach(w => w.terminate());
+                workers = [];
+                console.log('Worker matching disabled; running on main thread for testing.');
             }
 
             // ── Canvas references ──

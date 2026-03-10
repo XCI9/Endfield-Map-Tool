@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────
 
 const SCALE_DOWN = 0.5;
+const ENABLE_MATCH_WORKERS = false;
 
 const MAPS = {
     map01: { file: 'assets/map01.webp', name: '四號谷地' },
