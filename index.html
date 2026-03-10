@@ -243,7 +243,9 @@
                         </label>
                         <button v-if="cropEditMode" @click="undoCropEdit" :disabled="!cropCanUndo">復原</button>
                         <button v-if="cropEditMode" @click="redoCropEdit" :disabled="!cropCanRedo">取消復原</button>
-                        <button :class="{ active: cropEditMode }" @click="toggleCropEditMode">{{ cropEditMode ? '完成擦除' : '橡皮擦' }}</button>
+                        <button @click="resetCrop">重設{{ cropEditMode ? '擦除' : '選擇' }}</button>
+                        <button v-if="!cropEditMode" @click="selectAllCrop">全選</button>
+                        <button v-if="!cropEditMode" @click="toggleCropEditMode">橡皮擦</button>
                     </div>
                 </div>
                 <div class="crop-wrapper-outer">
@@ -253,10 +255,9 @@
                     </div>
                 </div>
                 <div class="crop-controls">
-                    <button @click="resetCrop">重設選擇</button>
-                    <button @click="selectAllCrop">全選</button>
-                    <button @click="cancelCrop">取消</button>
-                    <button class="confirm" @click="confirmCrop">確認裁剪</button>
+                    <button @click="cancelCrop">取消上傳</button>
+                    <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">完成擦除</button>
+                    <button class="confirm" v-else @click="confirmCrop">確認裁剪</button>
                 </div>
             </div>
         </div>
