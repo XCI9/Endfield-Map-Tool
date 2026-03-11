@@ -15,16 +15,6 @@ const MapLoader = {
         }
     },
 
-    extractAlphaMask(sourceMat) {
-        const alphaMask = new cv.Mat(sourceMat.rows, sourceMat.cols, cv.CV_8UC1);
-        const src = sourceMat.data;
-        const dst = alphaMask.data;
-        for (let i = 0, j = 3; i < dst.length; i++, j += 4) {
-            dst[i] = src[j];
-        }
-        return alphaMask;
-    },
-
     propagateEdgeGrayValues(grayMat, alphaMask) {
         const grayData = grayMat.data;
         const alphaData = alphaMask.data;
@@ -139,7 +129,7 @@ const MapLoader = {
     processGrayBase(sourceMat, alphaMask = null) {
         const gray = new cv.Mat();
         const ownAlphaMask = !alphaMask;
-        const resolvedAlphaMask = alphaMask || this.extractAlphaMask(sourceMat);
+        const resolvedAlphaMask = alphaMask || extractAlphaMask(sourceMat);
 
         try {
             cv.cvtColor(sourceMat, gray, cv.COLOR_RGBA2GRAY);
@@ -199,7 +189,7 @@ const MapLoader = {
                     throw new Error('cv.imread returned an invalid Mat');
                 }
 
-                alphaMask = this.extractAlphaMask(rgbaBaseMat);
+                alphaMask = extractAlphaMask(rgbaBaseMat);
                 nextGrayBase = this.processGrayBase(rgbaBaseMat, alphaMask);
                 nextBaseAlphaMask = alphaMask;
                 alphaMask = null;

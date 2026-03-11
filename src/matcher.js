@@ -5,16 +5,6 @@
 // ─────────────────────────────────────────────
 
 const Matcher = {
-    extractAlphaMask(sourceMat) {
-        const alphaMask = new cv.Mat(sourceMat.rows, sourceMat.cols, cv.CV_8UC1);
-        const src = sourceMat.data;
-        const dst = alphaMask.data;
-        for (let i = 0, j = 3; i < dst.length; i++, j += 4) {
-            dst[i] = src[j];
-        }
-        return alphaMask;
-    },
-
     getBaseSize() {
         const dims = CanvasManager.getBaseDimensions();
         if (dims) return dims;
@@ -182,7 +172,7 @@ const Matcher = {
             // ── Transparency handling ─────────────────────────────────────────
             // Extract alpha channel once without cv.split() to avoid 4 extra
             // full-size temporary channel Mats.
-            const alphaMask = this.extractAlphaMask(subMat);
+            const alphaMask = extractAlphaMask(subMat);
 
             // Detect if image actually has transparent pixels.
             // If fully opaque → matchMask = null (skip mask overhead entirely)
@@ -315,36 +305,8 @@ const Matcher = {
                 hCtx.imageSmoothingQuality = 'high';
                 hCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, finalW, finalH);
 
-                CanvasManager.syncBaseCanvasSizes(); 
-                
-                // Do NOT use OpenCV copyTo for merging the alpha image, as it causes black jagged edges.
-                // Draw onto visual canvas directly.
-                if (baseCanvas && baseCtx) {
-                    baseCtx.drawImage(
-                        historyCanvas, 
-                        0, 0, rect.width, rect.height, 
-                        rect.x, rect.y, rect.width, rect.height
-                    );
-                }
+                History.addRecord(appState, canvas, historyCanvas, rect, bestScale);
 
-                CanvasManager.updateOverlayCanvas(historyCanvas, rect);
-
-                // Ensure the original unmodified canvas is also cloned and saved for rematching
-                const savedOriginalCanvas = document.createElement('canvas');
-                savedOriginalCanvas.width = canvas.width;
-                savedOriginalCanvas.height = canvas.height;
-                savedOriginalCanvas.getContext('2d').drawImage(canvas, 0, 0);
-
-                appState.history.push({ 
-                    canvas: historyCanvas, 
-                    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-                    originalCanvas: savedOriginalCanvas,
-                    scale: bestScale
-                });
-                appState.canUndo = true;
-
-                CanvasManager.renderView(appState.showOriginalBase);
-                ExportHandler.updatePreview(appState);
                 const endTime = performance.now();
                 appState.statusText = `✅ 成功！耗時: ${Math.round(endTime - startTime)}ms, 相似度: ${Math.round(bestVal * 100)}%, 縮放比例: ${bestScale.toFixed(2)}`;
                 appState.hasOutput = true;

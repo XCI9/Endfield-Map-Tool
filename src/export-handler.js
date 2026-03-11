@@ -56,17 +56,45 @@ const ExportHandler = {
         let hasPixels = false;
 
         if (appState.exportCropTransparent) {
+            let top = -1, bottom = -1, left = width, right = -1;
+
+            // Highly optimized bounding box search skipping inner transparent pixels
             for (let y = 0; y < height; y++) {
+                const rowStart = y * width;
+                let foundInRow = false;
+                let firstX = -1, lastX = -1;
+
+                // Find left-most pixel in this row
                 for (let x = 0; x < width; x++) {
-                    if (data[(y * width + x) * 4 + 3] > 0) {
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                        hasPixels = true;
+                    if (data[(rowStart + x) * 4 + 3] > 0) {
+                        firstX = x;
+                        foundInRow = true;
+                        break;
                     }
                 }
+
+                if (foundInRow) {
+                    if (top === -1) top = y;
+                    bottom = y;
+
+                    // Find right-most pixel in this row
+                    for (let x = width - 1; x >= firstX; x--) {
+                        if (data[(rowStart + x) * 4 + 3] > 0) {
+                            lastX = x;
+                            break;
+                        }
+                    }
+
+                    if (firstX < left) left = firstX;
+                    if (lastX > right) right = lastX;
+                }
             }
+
+            if (top !== -1) {
+                minX = left; maxX = right; minY = top; maxY = bottom;
+                hasPixels = true;
+            }
+
             if (!hasPixels) {
                 appState.statusText = '❌ 圖片全為透明，無法匯出';
                 appState.isExporting = false;

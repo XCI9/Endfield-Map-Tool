@@ -32,6 +32,16 @@ function isMatAvailable(mat) {
     }
 }
 
+function extractAlphaMask(sourceMat) {
+    const alphaMask = new cv.Mat(sourceMat.rows, sourceMat.cols, cv.CV_8UC1);
+    const src = sourceMat.data;
+    const dst = alphaMask.data;
+    for (let i = 0, j = 3; i < dst.length; i++, j += 4) {
+        dst[i] = src[j];
+    }
+    return alphaMask;
+}
+
 // ── OpenCV Mats ──
 let grayBase = null;
 let baseAlphaMask = null;
