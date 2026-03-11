@@ -178,7 +178,6 @@ const MapLoader = {
             return;
         }
 
-        let nextBaseMat = null;
         let nextGrayBase = null;
         let nextBaseAlphaMask = null;
         let alphaMask = null;
@@ -193,33 +192,29 @@ const MapLoader = {
             // (disabled state) before the event loop freezes.
             await yieldToUI();
 
+            let rgbaBaseMat = null;
             try {
-                nextBaseMat = cv.imread(canvas);
-                if (!isMatAvailable(nextBaseMat)) {
+                rgbaBaseMat = cv.imread(canvas);
+                if (!isMatAvailable(rgbaBaseMat)) {
                     throw new Error('cv.imread returned an invalid Mat');
                 }
 
-                alphaMask = this.extractAlphaMask(nextBaseMat);
-                nextGrayBase = this.processGrayBase(nextBaseMat, alphaMask);
+                alphaMask = this.extractAlphaMask(rgbaBaseMat);
+                nextGrayBase = this.processGrayBase(rgbaBaseMat, alphaMask);
                 nextBaseAlphaMask = alphaMask;
                 alphaMask = null;
             } catch (error) {
                 throw new Error(`prepare base mats failed: ${error?.message || error}`);
             } finally {
+                rgbaBaseMat = safeDeleteMat(rgbaBaseMat);
                 alphaMask = safeDeleteMat(alphaMask);
             }
 
-            baseMat = safeDeleteMat(baseMat);
-            originalBaseMat = safeDeleteMat(originalBaseMat);
             grayBase = safeDeleteMat(grayBase);
             baseAlphaMask = safeDeleteMat(baseAlphaMask);
-            searchBase = safeDeleteMat(searchBase);
 
-            baseMat = null;
-            originalBaseMat = null;
             grayBase = nextGrayBase;
             baseAlphaMask = nextBaseAlphaMask;
-            nextBaseMat = safeDeleteMat(nextBaseMat);
             nextGrayBase = null;
             nextBaseAlphaMask = null;
 
@@ -241,7 +236,6 @@ const MapLoader = {
             // isLoadingBaseMap is still true — so the JS-level guards can catch them.
             await yieldToUI();
         } catch (error) {
-            nextBaseMat = safeDeleteMat(nextBaseMat);
             nextGrayBase = safeDeleteMat(nextGrayBase);
             nextBaseAlphaMask = safeDeleteMat(nextBaseAlphaMask);
             alphaMask = safeDeleteMat(alphaMask);

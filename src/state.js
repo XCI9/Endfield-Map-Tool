@@ -33,11 +33,8 @@ function isMatAvailable(mat) {
 }
 
 // ── OpenCV Mats ──
-let baseMat = null;
-let originalBaseMat = null;
 let grayBase = null;
 let baseAlphaMask = null;
-let searchBase = null;
 
 // ── Canvas elements ──
 let outputCanvas = null;

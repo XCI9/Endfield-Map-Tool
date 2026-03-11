@@ -11,9 +11,6 @@ const CanvasManager = {
         if (isMatAvailable(baseAlphaMask)) {
             return { width: baseAlphaMask.cols, height: baseAlphaMask.rows };
         }
-        if (isMatAvailable(baseMat)) {
-            return { width: baseMat.cols, height: baseMat.rows };
-        }
         if (this.hasCanvasContent(baseCanvas)) {
             return { width: baseCanvas.width, height: baseCanvas.height };
         }

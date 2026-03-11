@@ -354,7 +354,6 @@ const Matcher = {
                 appState.statusText = '❌ 找不到匹配位置，請嘗試其他截圖或檢查內容';
             }
 
-            searchBase = safeDeleteMat(searchBase);
             subMat.delete();
             graySub.delete();
             alphaMask.delete();
