@@ -66,7 +66,7 @@
             const resizedSub = new cv.Mat();
             cv.resize(templateImg, resizedSub, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_AREA);
 
-            // 當存在透明遮罩時，將透明像素填入 #6c6c6c (108) 來與大地圖周圍背景一致，
+            // 當存在透明遮罩時，將透明像素填入黑色 (0) 來與大地圖周圍背景一致，
             // 這樣匹配時就不會因為背景色差而在交界處產生虛假特徵邊緣。
             if (templateMask) {
                 const resizedMask = new cv.Mat();
@@ -74,7 +74,7 @@
 
                 const invMask = new cv.Mat();
                 cv.bitwise_not(resizedMask, invMask);
-                const fillMat = new cv.Mat(newHeight, newWidth, resizedSub.type(), new cv.Scalar(108));
+                const fillMat = new cv.Mat(newHeight, newWidth, resizedSub.type(), new cv.Scalar(0));
                 fillMat.copyTo(resizedSub, invMask);
                 fillMat.delete();
                 invMask.delete();

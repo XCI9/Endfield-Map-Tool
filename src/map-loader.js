@@ -15,113 +15,12 @@ const MapLoader = {
         }
     },
 
-    propagateEdgeGrayValues(grayMat, alphaMask) {
+    fillTransparentWithBlack(grayMat, alphaMask) {
         const grayData = grayMat.data;
         const alphaData = alphaMask.data;
-        const total = grayData.length;
-        const sums = new Float32Array(total);
-        const counts = new Uint8Array(total);
-        const rows = grayMat.rows;
-        const cols = grayMat.cols;
-
-        for (let x = 0; x < cols; x++) {
-            let lastSeen = -1;
-            for (let y = 0; y < rows; y++) {
-                const idx = y * cols + x;
-                if (alphaData[idx] > 0) {
-                    lastSeen = grayData[idx];
-                } else if (lastSeen >= 0) {
-                    sums[idx] += lastSeen;
-                    counts[idx] += 1;
-                }
-            }
-
-            lastSeen = -1;
-            for (let y = rows - 1; y >= 0; y--) {
-                const idx = y * cols + x;
-                if (alphaData[idx] > 0) {
-                    lastSeen = grayData[idx];
-                } else if (lastSeen >= 0) {
-                    sums[idx] += lastSeen;
-                    counts[idx] += 1;
-                }
-            }
-        }
-
-        for (let y = 0; y < rows; y++) {
-            let lastSeen = -1;
-            const rowOffset = y * cols;
-            for (let x = 0; x < cols; x++) {
-                const idx = rowOffset + x;
-                if (alphaData[idx] > 0) {
-                    lastSeen = grayData[idx];
-                } else if (lastSeen >= 0) {
-                    sums[idx] += lastSeen;
-                    counts[idx] += 1;
-                }
-            }
-
-            lastSeen = -1;
-            for (let x = cols - 1; x >= 0; x--) {
-                const idx = rowOffset + x;
-                if (alphaData[idx] > 0) {
-                    lastSeen = grayData[idx];
-                } else if (lastSeen >= 0) {
-                    sums[idx] += lastSeen;
-                    counts[idx] += 1;
-                }
-            }
-        }
-
-        for (let idx = 0; idx < total; idx++) {
-            if (alphaData[idx] > 0) continue;
-            grayData[idx] = counts[idx] > 0 ? Math.round(sums[idx] / counts[idx]) : 108;
-        }
-    },
-
-    fillTransparentGrayFromEdges(grayMat, alphaMask) {
-        const alphaData = alphaMask.data;
-        let opaquePixels = 0;
         for (let i = 0; i < alphaData.length; i++) {
-            if (alphaData[i] > 0) opaquePixels += 1;
-        }
-
-        if (opaquePixels === 0 || opaquePixels === alphaData.length) return;
-
-        this.propagateEdgeGrayValues(grayMat, alphaMask);
-
-        const grayData = grayMat.data;
-        const original = new Uint8Array(grayData);
-        const rows = grayMat.rows;
-        const cols = grayMat.cols;
-
-        for (let y = 0; y < rows; y++) {
-            const rowOffset = y * cols;
-            for (let x = 0; x < cols; x++) {
-                const idx = rowOffset + x;
-                if (alphaData[idx] > 0) continue;
-
-                let sum = original[idx];
-                let count = 1;
-
-                if (x > 0) {
-                    sum += original[idx - 1];
-                    count += 1;
-                }
-                if (x + 1 < cols) {
-                    sum += original[idx + 1];
-                    count += 1;
-                }
-                if (y > 0) {
-                    sum += original[idx - cols];
-                    count += 1;
-                }
-                if (y + 1 < rows) {
-                    sum += original[idx + cols];
-                    count += 1;
-                }
-
-                grayData[idx] = Math.round(sum / count);
+            if (alphaData[i] === 0) {
+                grayData[i] = 0;
             }
         }
     },
@@ -133,7 +32,7 @@ const MapLoader = {
 
         try {
             cv.cvtColor(sourceMat, gray, cv.COLOR_RGBA2GRAY);
-            this.fillTransparentGrayFromEdges(gray, resolvedAlphaMask);
+            this.fillTransparentWithBlack(gray, resolvedAlphaMask);
             return gray;
         } catch (error) {
             gray.delete();
