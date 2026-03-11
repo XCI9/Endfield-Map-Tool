@@ -1,325 +1,234 @@
 // ─────────────────────────────────────────────
 // Matcher
-// Template matching with multi-worker parallelism
-// and multi-scale hierarchical search
+// ORB feature-point matching using pre-computed .orbf fingerprints
 // ─────────────────────────────────────────────
 
 const Matcher = {
-    getBaseSize() {
-        const dims = CanvasManager.getBaseDimensions();
-        if (dims) return dims;
-        return { width: 0, height: 0 };
-    },
 
-    async performTemplateMatch(appState, baseMatRef, templateMatRef, scaleDownRes, roiCandidates, scaleRange, step, statusPrefix, _preScaledBase = null, templateMaskRef = null, _preScaledBaseAlphaMask = null) {
-        // Use caller-supplied pre-scaled base when available (avoids re-resizing
-        // the same image for every candidate at the same level)
-        let scaledBase, ownScaledBase;
-        let scaledBaseAlphaMask = null;
-        let ownScaledBaseAlphaMask = false;
-        
-        if (_preScaledBase) {
-            scaledBase = _preScaledBase;
-            ownScaledBase = false;
-        } else {
-            scaledBase = new cv.Mat();
-            cv.resize(baseMatRef, scaledBase, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_AREA);
-            ownScaledBase = true;
-        }
+    // ── 相似變換 RANSAC 估算器 ─────────────────────────────────────────────
+    // 等效於 Python 的 cv2.estimateAffinePartial2D(RANSAC)
+    // 4-DOF：等比縮放 + 旋轉 + 平移，不含剪切與透視
+    //   Transform: x' = a*x - b*y + tx
+    //              y' = b*x + a*y + ty
+    //   scale = sqrt(a² + b²)
+    //
+    // srcPts / dstPts: { x, y }[]
+    // 回傳 { a, b, tx, ty, inliers: number[] } 或 null
+    _estimateSimilarity(srcPts, dstPts, threshold = 5.0, maxIter = 1000, minInliers = 4) {
+        const n = srcPts.length;
+        if (n < minInliers) return null;
 
-        if (isMatAvailable(baseAlphaMask)) {
-            if (_preScaledBaseAlphaMask) {
-                scaledBaseAlphaMask = _preScaledBaseAlphaMask;
-            } else {
-                scaledBaseAlphaMask = new cv.Mat();
-                cv.resize(baseAlphaMask, scaledBaseAlphaMask, new cv.Size(), scaleDownRes, scaleDownRes, cv.INTER_NEAREST);
-                ownScaledBaseAlphaMask = true;
+        const threshSq = threshold * threshold;
+        let bestInliers = [];
+        let bestA = 1, bestB = 0, bestTx = 0, bestTy = 0;
+
+        // 給定 2 個點對，解析求解相似變換參數
+        const fit2 = (i1, i2) => {
+            const dxS = srcPts[i2].x - srcPts[i1].x;
+            const dyS = srcPts[i2].y - srcPts[i1].y;
+            const den = dxS * dxS + dyS * dyS;
+            if (den < 1e-8) return null;
+            const dxM = dstPts[i2].x - dstPts[i1].x;
+            const dyM = dstPts[i2].y - dstPts[i1].y;
+            const a  = (dxM * dxS + dyM * dyS) / den;
+            const b  = (dyM * dxS - dxM * dyS) / den;
+            const tx = dstPts[i1].x - a * srcPts[i1].x + b * srcPts[i1].y;
+            const ty = dstPts[i1].y - b * srcPts[i1].x - a * srcPts[i1].y;
+            return { a, b, tx, ty };
+        };
+
+        // RANSAC 主迴圈
+        for (let iter = 0; iter < maxIter; iter++) {
+            const i1 = Math.floor(Math.random() * n);
+            let   i2 = Math.floor(Math.random() * (n - 1));
+            if (i2 >= i1) i2++;
+
+            const m = fit2(i1, i2);
+            if (!m) continue;
+
+            const inl = [];
+            for (let i = 0; i < n; i++) {
+                const ex = m.a * srcPts[i].x - m.b * srcPts[i].y + m.tx - dstPts[i].x;
+                const ey = m.b * srcPts[i].x + m.a * srcPts[i].y + m.ty - dstPts[i].y;
+                if (ex * ex + ey * ey < threshSq) inl.push(i);
+            }
+            if (inl.length > bestInliers.length) {
+                bestInliers = inl;
+                ({ a: bestA, b: bestB, tx: bestTx, ty: bestTy } = m);
             }
         }
 
-        // Build scale list
-        let scales = [];
-        let s = scaleRange.min;
-        while (s <= scaleRange.max) {
-            const finalS = s * scaleDownRes;
-            const newWidth = Math.round(templateMatRef.cols * finalS);
-            const newHeight = Math.round(templateMatRef.rows * finalS);
-            if (newWidth >= 20 && newHeight >= 20) scales.push(s);
-            s *= 1 + Math.max(0.01, step);
+        if (bestInliers.length < minInliers) return null;
+
+        // 精煉：對所有內點做閉合式最小二乘（centroid 法，同 Python det 公式）
+        let mpx = 0, mpy = 0, mqx = 0, mqy = 0;
+        for (const i of bestInliers) {
+            mpx += srcPts[i].x; mpy += srcPts[i].y;
+            mqx += dstPts[i].x; mqy += dstPts[i].y;
         }
+        const ni = bestInliers.length;
+        mpx /= ni; mpy /= ni; mqx /= ni; mqy /= ni;
 
-        if (scales.length === 0) {
-            if (ownScaledBase) scaledBase.delete();
-            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
-            return [];
+        let numA = 0, numB = 0, den = 0;
+        for (const i of bestInliers) {
+            const px_ = srcPts[i].x - mpx, py_ = srcPts[i].y - mpy;
+            const qx_ = dstPts[i].x - mqx, qy_ = dstPts[i].y - mqy;
+            numA += px_ * qx_ + py_ * qy_;
+            numB += px_ * qy_ - py_ * qx_;
+            den  += px_ * px_ + py_ * py_;
         }
+        if (den < 1e-8) return null;
 
-        // Fallback to main thread if no workers
-        if (workers.length === 0 || scales.length < 2) {
-            console.warn('No workers available, running on main thread');
-            const results = this.runMatchLocal(scaledBase, templateMatRef, scaleDownRes, roiCandidates, scales, templateMaskRef, scaledBaseAlphaMask);
-            if (ownScaledBase) scaledBase.delete();
-            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
-            return results;
-        }
+        const a  = numA / den;
+        const b  = numB / den;
+        const tx = mqx - a * mpx + b * mpy;
+        const ty = mqy - b * mpx - a * mpy;
 
-        // Split scales across workers
-        const chunks = Array.from({ length: workers.length }, () => []);
-        scales.forEach((sc, i) => chunks[i % workers.length].push(sc));
-
-        // Use SharedArrayBuffer if available (zero-copy across workers)
-        const useSharedBuffer = typeof SharedArrayBuffer !== 'undefined';
-
-        let baseData, baseAlphaMaskData = null, templateData, maskData;
-        if (useSharedBuffer) {
-            const baseBuf = new SharedArrayBuffer(scaledBase.data.length);
-            new Uint8Array(baseBuf).set(scaledBase.data);
-            baseData = new Uint8Array(baseBuf);
-
-            if (scaledBaseAlphaMask) {
-                const baseAlphaMaskBuf = new SharedArrayBuffer(scaledBaseAlphaMask.data.length);
-                new Uint8Array(baseAlphaMaskBuf).set(scaledBaseAlphaMask.data);
-                baseAlphaMaskData = new Uint8Array(baseAlphaMaskBuf);
-            }
-
-            const tplBuf = new SharedArrayBuffer(templateMatRef.data.length);
-            new Uint8Array(tplBuf).set(templateMatRef.data);
-            templateData = new Uint8Array(tplBuf);
-
-            if (templateMaskRef) {
-                const maskBuf = new SharedArrayBuffer(templateMaskRef.data.length);
-                new Uint8Array(maskBuf).set(templateMaskRef.data);
-                maskData = new Uint8Array(maskBuf);
-            }
-        } else {
-            baseData = new Uint8Array(scaledBase.data);
-            if (scaledBaseAlphaMask) baseAlphaMaskData = new Uint8Array(scaledBaseAlphaMask.data);
-            templateData = new Uint8Array(templateMatRef.data);
-            if (templateMaskRef) maskData = new Uint8Array(templateMaskRef.data);
-        }
-
-        const basePayload = { rows: scaledBase.rows, cols: scaledBase.cols, type: scaledBase.type(), data: baseData };
-        const baseAlphaMaskPayload = scaledBaseAlphaMask ? { rows: scaledBaseAlphaMask.rows, cols: scaledBaseAlphaMask.cols, type: scaledBaseAlphaMask.type(), data: baseAlphaMaskData } : null;
-        const templatePayload = { rows: templateMatRef.rows, cols: templateMatRef.cols, type: templateMatRef.type(), data: templateData };
-        const maskPayload = templateMaskRef ? { rows: templateMaskRef.rows, cols: templateMaskRef.cols, type: templateMaskRef.type(), data: maskData } : null;
-
-        const promises = workers.map((worker, index) => new Promise((resolve, reject) => {
-            const id = `${Date.now()}_${index}`;
-            const handleMsg = (e) => {
-                if (e.data.id !== id) return;
-                worker.removeEventListener('message', handleMsg);
-                e.data.type === 'result' ? resolve(e.data.results) : reject(e.data.error);
-            };
-            worker.addEventListener('message', handleMsg);
-            worker.postMessage({
-                cmd: 'match', id,
-                payload: { baseData: basePayload, baseAlphaMaskData: baseAlphaMaskPayload, templateData: templatePayload, maskData: maskPayload, scaleDownRes, roiCandidates, scaleRange: { min: 0, max: 0 }, scales: chunks[index], step }
-            });
-        }));
-
-        appState.statusText = `⏳ ${statusPrefix}... (並行運算中)`;
-
-        try {
-            const allResults = (await Promise.all(promises)).flat();
-            if (ownScaledBase) scaledBase.delete();
-            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
-            return this._deduplicateResults(allResults, 5);
-        } catch (e) {
-            console.error('Worker error', e);
-            if (ownScaledBase) scaledBase.delete();
-            if (ownScaledBaseAlphaMask && scaledBaseAlphaMask) scaledBaseAlphaMask.delete();
-            return [];
-        }
+        return { a, b, tx, ty, inliers: bestInliers };
     },
 
-    runMatchLocal(scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask, searchBaseAlphaMask = null) {
-        if (window.runTemplateMatch) {
-            return window.runTemplateMatch(cv, scaledBase, templateImg, scaleDownRes, roiCandidates, scales, templateMask, searchBaseAlphaMask);
-        }
-        console.error('match-logic.js not loaded');
-        return [];
-    },
-
-    _deduplicateResults(results, keepTop) {
-        results.sort((a, b) => b.val - a.val);
-        const unique = [];
-        for (const res of results) {
-            const isClose = unique.some(u =>
-                Math.abs(u.loc.x - res.loc.x) < 10 &&
-                Math.abs(u.loc.y - res.loc.y) < 10 &&
-                Math.abs(u.scale - res.scale) < 0.1
-            );
-            if (!isClose) unique.push(res);
-            if (unique.length >= keepTop) break;
-        }
-        return unique;
-    },
-
-    async processScreenshotAfterCrop(appState, canvas, customLevel0Override = null) {
+    // _customLevel0Override is kept for API compatibility but ignored by ORB
+    async processScreenshotAfterCrop(appState, canvas, _customLevel0Override = null) {
         if (appState.isProcessing) return;
         if (!grayBase) {
             appState.statusText = '❌ 基底地圖尚未載入';
             return;
         }
+        if (!orbFingerprint) {
+            appState.statusText = '❌ ORB 指紋尚未載入，請稍候或重新選擇地圖';
+            return;
+        }
 
         appState.isProcessing = true;
+
+        let subMat    = null, graySub   = null, emptyMask = null;
+        let orb       = null, kpSub     = null, desSub    = null;
+        let desBase   = null, bf        = null, matches   = null;
+
         try {
             const startTime = performance.now();
-            appState.statusText = '⏳ 正在搜尋最佳位置與比例...';
+            appState.statusText = '⏳ 正在偵測截圖特徵點...';
 
-            const subMat = cv.imread(canvas);
-
-            // ── Transparency handling ─────────────────────────────────────────
-            // Extract alpha channel once without cv.split() to avoid 4 extra
-            // full-size temporary channel Mats.
-            const alphaMask = extractAlphaMask(subMat);
-
-            // Detect if image actually has transparent pixels.
-            // If fully opaque → matchMask = null (skip mask overhead entirely)
-            const totalPixels = alphaMask.rows * alphaMask.cols;
-            const opaquePixels = cv.countNonZero(alphaMask);
-            const matchMask = (opaquePixels < totalPixels) ? alphaMask : null;
-
-            const graySub = new cv.Mat();
+            // ── 1. 讀入截圖並轉灰階 ──────────────────────────────────────────
+            subMat  = cv.imread(canvas);
+            graySub = new cv.Mat();
             cv.cvtColor(subMat, graySub, cv.COLOR_RGBA2GRAY);
-            // ─────────────────────────────────────────────────────────────────
 
-            let currentScaleRes = SCALE_DOWN;
+            // ── 2. ORB 偵測截圖特徵點 ─────────────────────────────────────────
+            // 參數與 fingerprintORB.py 保持一致：
+            //   nfeatures=6000, scaleFactor=1.2, nlevels=8, edgeThreshold=15,
+            //   firstLevel=0, WTA_K=2
+            // scoreType/patchSize/fastThreshold 使用預設值（enum 未暴露於 OpenCV.js）
+            orb       = new cv.ORB(6000, 1.2, 8, 15, 0, 2);
+            kpSub     = new cv.KeyPointVector();
+            desSub    = new cv.Mat();
+            emptyMask = new cv.Mat();
+            orb.detectAndCompute(graySub, emptyMask, kpSub, desSub);
 
-            const globalScaleRange = { min: 0.8, max: 5 };
-            if (customLevel0Override && customLevel0Override.scaleRange) {
-                globalScaleRange.min = customLevel0Override.scaleRange.min;
-                globalScaleRange.max = customLevel0Override.scaleRange.max;
+            const nQuery = kpSub.size();
+            if (nQuery < 4 || desSub.rows < 4) {
+                appState.statusText = `❌ 截圖特徵點不足 (${nQuery} 個)，請使用包含更多細節的截圖`;
+                return;
             }
 
-            const searchLevels = [
-                { scaleRes: SCALE_DOWN * 0.25, roiMargin: 0,  scaleRange: { ...globalScaleRange }, step: 0.1,  threshold: 0.2, status: '粗略搜尋中', keepTop: 10 },
-                { scaleRes: SCALE_DOWN * 0.5,  roiMargin: 30, scaleRange: { range: 0.2 },        step: 0.05, threshold: 0.3, status: '中等搜尋中', keepTop: 5 },
-                { scaleRes: SCALE_DOWN,         roiMargin: 20, scaleRange: { range: 0.05 },       step: 0.03, threshold: 0.35, status: '精確搜尋中', keepTop: 1 },
-                { scaleRes: SCALE_DOWN * 2,     roiMargin: 10, scaleRange: { range: 0.03 },       step: 0.01, threshold: 0.4,  status: '確認結果中', keepTop: 1 }
-            ];
+            appState.statusText = `⏳ 正在比對 ${nQuery} 個特徵點...`;
 
-            if (customLevel0Override) {
-                Object.assign(searchLevels[0], customLevel0Override);
-                // Ensure the overridden scaleRange is used rather than replaced completely if undefined in override
-                searchLevels[0].scaleRange = customLevel0Override.scaleRange || globalScaleRange;
-            }
+            // ── 3. 載入指紋的 OpenCV 物件 ─────────────────────────────────────
+            const { kps: kpsBase, desMat: desBaseMat } = FingerprintLoader.toOpenCV(orbFingerprint);
+            desBase = desBaseMat;
 
-            let currentCandidates = null;
-            let prevScaleRes = 1;
+            // ── 4. BFMatcher knnMatch (k=2，供 Lowe ratio 使用) ───────────────
+            bf      = new cv.BFMatcher(cv.NORM_HAMMING, false);
+            matches = new cv.DMatchVectorVector();
+            bf.knnMatch(desSub, desBase, matches, 2);
 
-            for (let i = 0; i < searchLevels.length; i++) {
-                const level = searchLevels[i];
-                let nextRoiCandidates = [];
-
-                if (i === 0) {
-                    nextRoiCandidates = null;
-                } else if (currentCandidates && currentCandidates.length > 0) {
-                    for (const cand of currentCandidates) {
-                        const ratio = level.scaleRes / prevScaleRes;
-                        nextRoiCandidates.push({
-                            x: cand.loc.x * ratio - level.roiMargin,
-                            y: cand.loc.y * ratio - level.roiMargin,
-                            width: graySub.cols * cand.scale * level.scaleRes + level.roiMargin * 2,
-                            height: graySub.rows * cand.scale * level.scaleRes + level.roiMargin * 2,
-                            baseScale: cand.scale
-                        });
-                    }
-                } else {
-                    break;
+            // ── 5. Lowe ratio test → 收集配對點座標（純 JS 陣列）─────────────
+            const srcPtsArr = [], dstPtsArr = [];
+            for (let i = 0; i < matches.size(); i++) {
+                const row = matches.get(i);
+                if (row.size() < 2) continue;
+                const m = row.get(0);
+                const n = row.get(1);
+                if (m.distance < 0.75 * n.distance) {
+                    const kpQ = kpSub.get(m.queryIdx);
+                    const kpT = kpsBase[m.trainIdx];
+                    srcPtsArr.push({ x: kpQ.pt.x, y: kpQ.pt.y });
+                    dstPtsArr.push({ x: kpT.x,    y: kpT.y    });
                 }
-
-                let levelResults = [];
-
-                if (i === 0) {
-                    levelResults = await this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, null, level.scaleRange, level.step, level.status, null, matchMask, null);
-                } else {
-                    // Pre-scale base ONCE for this level, then share it across all candidate
-                    // calls – eliminates O(candidates − 1) redundant cv.resize() operations
-                    const levelScaledBase = new cv.Mat();
-                    cv.resize(grayBase, levelScaledBase, new cv.Size(), level.scaleRes, level.scaleRes, cv.INTER_AREA);
-                    let levelScaledBaseAlphaMask = null;
-                    if (isMatAvailable(baseAlphaMask)) {
-                        levelScaledBaseAlphaMask = new cv.Mat();
-                        cv.resize(baseAlphaMask, levelScaledBaseAlphaMask, new cv.Size(), level.scaleRes, level.scaleRes, cv.INTER_NEAREST);
-                    }
-
-                    appState.statusText = `⏳ ${level.status} (檢查 ${nextRoiCandidates.length} 個候選位置)...`;
-
-                    // Fire all candidate matches in parallel so the worker pool
-                    // stays fully loaded instead of idling between sequential awaits
-                    const candidatePromises = nextRoiCandidates.map((roiCand, cIdx) => {
-                        const range = {
-                            min: Math.max(globalScaleRange.min, roiCand.baseScale - level.scaleRange.range),
-                            max: Math.min(globalScaleRange.max, roiCand.baseScale + level.scaleRange.range)
-                        };
-                        return this.performTemplateMatch(appState, grayBase, graySub, level.scaleRes, [roiCand], range, level.step, `${level.status} ${cIdx + 1}/${nextRoiCandidates.length}`, levelScaledBase, matchMask, levelScaledBaseAlphaMask);
-                    });
-
-                    const subResults = await Promise.all(candidatePromises);
-                    levelResults = subResults.flat();
-                    levelScaledBase.delete();
-                    if (levelScaledBaseAlphaMask) levelScaledBaseAlphaMask.delete();
-                }
-
-                levelResults = levelResults.filter(r => r.val >= level.threshold);
-                currentCandidates = this._deduplicateResults(levelResults, level.keepTop);
-                prevScaleRes = level.scaleRes;
-                currentScaleRes = level.scaleRes;
-
-                if (currentCandidates.length === 0) break;
             }
 
-            const bestResult = currentCandidates?.[0] ?? null;
-
-            if (bestResult && bestResult.val > 0.4) {
-                let { loc: bestLoc, val: bestVal, scale: bestScale } = bestResult;
-
-                if (currentScaleRes !== SCALE_DOWN) {
-                    bestLoc = {
-                        x: bestLoc.x * (SCALE_DOWN / currentScaleRes),
-                        y: bestLoc.y * (SCALE_DOWN / currentScaleRes)
-                    };
-                }
-
-                const finalX = Math.round(bestLoc.x / SCALE_DOWN);
-                const finalY = Math.round(bestLoc.y / SCALE_DOWN);
-                const finalW = Math.round(subMat.cols * bestScale);
-                const finalH = Math.round(subMat.rows * bestScale);
-
-                const baseSize = this.getBaseSize();
-                const rect = new cv.Rect(
-                    Math.max(0, finalX),
-                    Math.max(0, finalY),
-                    Math.min(finalW, baseSize.width - finalX),
-                    Math.min(finalH, baseSize.height - finalY)
-                );
-
-                // Use pure DOM Canvas to resize the original image! 
-                // This perfectly handles native CSS alpha blending anti-aliasing without OpenCV black fringes
-                const historyCanvas = document.createElement('canvas');
-                historyCanvas.width = finalW;
-                historyCanvas.height = finalH;
-                const hCtx = historyCanvas.getContext('2d');
-                hCtx.imageSmoothingEnabled = true;
-                hCtx.imageSmoothingQuality = 'high';
-                hCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, finalW, finalH);
-
-                History.addRecord(appState, canvas, historyCanvas, rect, bestScale);
-
-                const endTime = performance.now();
-                appState.statusText = `✅ 成功！耗時: ${Math.round(endTime - startTime)}ms, 相似度: ${Math.round(bestVal * 100)}%, 縮放比例: ${bestScale.toFixed(2)}`;
-                appState.hasOutput = true;
-                CanvasManager.resetView(appState.showOriginalBase);
-
-            } else {
-                appState.statusText = '❌ 找不到匹配位置，請嘗試其他截圖或檢查內容';
+            if (srcPtsArr.length < 4) {
+                appState.statusText = `❌ 匹配特徵點不足 (${srcPtsArr.length} 個)，請嘗試包含更多地圖細節的截圖`;
+                return;
             }
 
-            subMat.delete();
-            graySub.delete();
-            alphaMask.delete();
+            // ── 6. RANSAC 相似變換估算 ────────────────────────────────────────
+            // 等效 Python：cv2.estimateAffinePartial2D(RANSAC, reprojThreshold=5)
+            const simResult = this._estimateSimilarity(srcPtsArr, dstPtsArr, 5.0, 1000);
+            if (!simResult) {
+                appState.statusText = `❌ 無法確認截圖位置 (RANSAC 失敗)，請嘗試其他截圖`;
+                return;
+            }
+            const { a, b, tx, ty, inliers } = simResult;
+
+            // ── 7. 將截圖 4 個角落映射至基底地圖座標 ─────────────────────────
+            //   [x'] = [a  -b  tx] [x]      ← 同 Python cv2.transform(corners, M)
+            //   [y']   [b   a  ty] [y]
+            const W = canvas.width, H = canvas.height;
+            const mappedCorners = [[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => [
+                a * x - b * y + tx,
+                b * x + a * y + ty,
+            ]);
+
+            const xs = mappedCorners.map(p => p[0]);
+            const ys = mappedCorners.map(p => p[1]);
+
+            // ── 8. 輸出尺寸與定位 ─────────────────────────────────────────────
+            // scale = sqrt(a² + b²)  ← 同 Python sqrt(|det(M[:,:2])|)
+            const scale  = Math.sqrt(a * a + b * b);
+            const finalW = Math.round(W * scale);
+            const finalH = Math.round(H * scale);
+
+            // 定位：映射角點的 bounding box 左上角（無旋轉時即為 tx, ty）
+            const minX = Math.round(Math.min(...xs));
+            const minY = Math.round(Math.min(...ys));
+
+            const baseSize = CanvasManager.getBaseDimensions() || { width: grayBase.cols, height: grayBase.rows };
+            const clampedX = Math.max(0, minX);
+            const clampedY = Math.max(0, minY);
+            const rect = new cv.Rect(
+                clampedX,
+                clampedY,
+                Math.min(finalW, baseSize.width  - clampedX),
+                Math.min(finalH, baseSize.height - clampedY)
+            );
+
+            // ── 9. 建立 historyCanvas（截圖縮放至在地圖上的尺寸）────────────
+            const historyCanvas = document.createElement('canvas');
+            historyCanvas.width  = finalW;
+            historyCanvas.height = finalH;
+            const hCtx = historyCanvas.getContext('2d');
+            hCtx.imageSmoothingEnabled = true;
+            hCtx.imageSmoothingQuality = 'high';
+            hCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, finalW, finalH);
+
+            History.addRecord(appState, canvas, historyCanvas, rect, scale);
+
+            const elapsed = Math.round(performance.now() - startTime);
+            appState.statusText = `✅ 成功！耗時: ${elapsed}ms，內點: ${inliers.length}，縮放比例: ${scale.toFixed(2)}`;
+            appState.hasOutput = true;
+            CanvasManager.resetView(appState.showOriginalBase);
+
         } finally {
+            if (subMat)    subMat.delete();
+            if (graySub)   graySub.delete();
+            if (emptyMask) emptyMask.delete();
+            if (orb)       orb.delete();
+            if (kpSub)     kpSub.delete();
+            if (desSub)    desSub.delete();
+            if (desBase)   desBase.delete();
+            if (bf)        bf.delete();
+            if (matches)   matches.delete();
             appState.isProcessing = false;
         }
     }

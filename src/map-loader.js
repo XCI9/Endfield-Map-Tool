@@ -118,6 +118,19 @@ const MapLoader = {
             CanvasManager.resetView(appState.showOriginalBase);
             CanvasManager.renderView(appState.showOriginalBase);
             ExportHandler.updatePreview(appState);
+
+            // Load ORB fingerprint for the selected map
+            orbFingerprint = null;
+            if (mapInfo.orbf) {
+                appState.statusText = `⏳ 載入 ORB 指紋中...`;
+                await yieldToUI();
+                try {
+                    orbFingerprint = await FingerprintLoader.load(mapInfo.orbf);
+                } catch (e) {
+                    console.warn('[MapLoader] 無法載入 ORB 指紋:', e);
+                }
+            }
+
             appState.statusText = `✅ 基底地圖已載入：${mapInfo.name}，請上傳截圖`;
 
             // Yield again before clearing the flag. Any click events that were queued

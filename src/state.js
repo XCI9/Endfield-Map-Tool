@@ -7,8 +7,8 @@ const SCALE_DOWN = 0.5;
 const ENABLE_MATCH_WORKERS = false;
 
 const MAPS = {
-    map01: { file: 'assets/map01.webp', name: '四號谷地' },
-    map02: { file: 'assets/map02.webp', name: '武陵' }
+    map01: { file: 'assets/map01.webp', name: '四號谷地', orbf: 'assets/map01.orbf' },
+    map02: { file: 'assets/map02.webp', name: '武陵',   orbf: 'assets/map02.orbf' }
 };
 
 const yieldToUI = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -45,6 +45,7 @@ function extractAlphaMask(sourceMat) {
 // ── OpenCV Mats ──
 let grayBase = null;
 let baseAlphaMask = null;
+let orbFingerprint = null;   // parsed .orbf data for current map
 
 // ── Canvas elements ──
 let outputCanvas = null;
