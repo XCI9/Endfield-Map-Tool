@@ -166,7 +166,6 @@ function App() {
         async selectMap(key)        { await MapLoader.selectMap(this, key); },
         async confirmMapSwitch()    { await MapLoader.confirmMapSwitch(this); },
         cancelMapSwitch()           { MapLoader.cancelMapSwitch(this); },
-        async onMapChange(e)        { await this.selectMap(e.target.value); },
 
         // ── View toggles ──
         onOriginalToggle()          { CanvasManager.renderView(this.showOriginalBase); },
@@ -219,7 +218,6 @@ function App() {
         async updatePreview()       { await ExportHandler.updatePreview(this); },
         async startExportProcess()  { await ExportHandler.startExportProcess(this); },
         downloadExportedBlob()      { ExportHandler.downloadExportedBlob(this); },
-        downloadImage()             { ExportHandler.downloadImage(this); },
 
         // ── View ──
         resetView()                 { CanvasManager.resetView(this.showOriginalBase); },
@@ -228,7 +226,7 @@ function App() {
 }
 
 // ── Bootstrap ──
-const app = createApp({ App }).mount('#app');
+createApp({ App }).mount('#app');
 
 window.__opencvReady = async () => {
     if (window.__appState?.onOpenCvReady) {

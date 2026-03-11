@@ -138,43 +138,5 @@ const ExportHandler = {
         link.click();
         URL.revokeObjectURL(url);
         appState.showPreviewModal = false;
-    },
-
-    downloadImage(appState) {
-        const sourceCanvas = previewCanvas || baseCanvas;
-        if (!sourceCanvas) return;
-
-        const ctx = sourceCanvas.getContext('2d');
-        const width = sourceCanvas.width;
-        const height = sourceCanvas.height;
-        const data = ctx.getImageData(0, 0, width, height).data;
-
-        let minX = width, minY = height, maxX = 0, maxY = 0, hasPixels = false;
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                if (data[(y * width + x) * 4 + 3] > 0) {
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
-                    hasPixels = true;
-                }
-            }
-        }
-
-        if (!hasPixels) { appState.statusText = '❌ 圖片全為透明，無法下載'; return; }
-
-        const cropWidth = maxX - minX + 1;
-        const cropHeight = maxY - minY + 1;
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = cropWidth;
-        tempCanvas.height = cropHeight;
-        tempCanvas.getContext('2d').drawImage(sourceCanvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-
-        const link = document.createElement('a');
-        link.download = 'full_map_updated.png';
-        link.href = tempCanvas.toDataURL('image/png');
-        link.click();
-        appState.showPreviewModal = false;
     }
 };
