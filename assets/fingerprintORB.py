@@ -30,7 +30,7 @@ import os
 #   s=0.25 → t ∈ [4.00, 14.3]   ← 截圖縮小（縮放比 10x 落在此層）
 # 合計覆蓋 t ∈ [0.5, 14.3]，支援 0.5× ~ 10× 縮放範圍
 SCALE_LEVELS       = [2.0, 1.0, 0.5, 0.25]
-FEATURES_PER_LEVEL = 20000   # 每個縮放層抽取的最大特徵數
+FEATURES_PER_LEVEL = 2000000   # 每個縮放層抽取的最大特徵數
 
 
 class MapMatcher:
@@ -77,8 +77,8 @@ class MapMatcher:
         all_des_list  = []
 
         # ── 空間去重參數（每個 scale 層獨立套用）──────────────────────────
-        DEDUP_GRID    = 35   # 格子大小（原始地圖像素），越小保留越多
-        MAX_PER_CELL  = 2    # 每格最多保留幾個特徵
+        DEDUP_GRID    = 56   # 格子大小（原始地圖像素），越小保留越多
+        MAX_PER_CELL  = 1    # 每格最多保留幾個特徵
         from collections import defaultdict
 
         total_before_dedup = 0
