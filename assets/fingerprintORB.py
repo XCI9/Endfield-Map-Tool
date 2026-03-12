@@ -30,7 +30,7 @@ import os
 #   s=0.25 → t ∈ [4.00, 14.3]   ← 截圖縮小（縮放比 10x 落在此層）
 # 合計覆蓋 t ∈ [0.5, 14.3]，支援 0.5× ~ 10× 縮放範圍
 SCALE_LEVELS       = [2.0, 1.0, 0.5, 0.25]
-FEATURES_PER_LEVEL = 12000   # 每個縮放層抽取的最大特徵數
+FEATURES_PER_LEVEL = 20000   # 每個縮放層抽取的最大特徵數
 
 
 class MapMatcher:
@@ -114,7 +114,7 @@ class MapMatcher:
         # ── 空間去重：每個 DEDUP_GRID×DEDUP_GRID 格子只保留最高 response 的特徵 ──
         # ORB response = FAST 角點強度；數值越高代表越具辨識力
         # 去重後大幅減少 knnMatch 的比對量，且不損失辨識精度
-        DEDUP_GRID    = 16   # 格子大小（原始地圖像素），越小保留越多
+        DEDUP_GRID    = 25   # 格子大小（原始地圖像素），越小保留越多
         MAX_PER_CELL  = 4    # 每格最多保留幾個特徵
 
         # 將 kp_tuples 與 des 配對，依 (cell_x, cell_y) 分組

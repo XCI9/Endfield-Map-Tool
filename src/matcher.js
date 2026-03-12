@@ -30,7 +30,7 @@ const Matcher = {
     //              y' = b*x + a*y + ty
     //
     // 使用 Float32Array 平坦陣列取代 {x,y}[] 物件，減少 GC 壓力與記憶體跳躍
-    _estimateSimilarity(srcX, srcY, dstX, dstY, n, threshold = 5.0, maxIter = 500, minInliers = 4) {
+    _estimateSimilarity(srcX, srcY, dstX, dstY, n, threshold = 5.0, maxIter = 500, minInliers = 2) {
         if (n < minInliers) return null;
 
         const threshSq = threshold * threshold;
@@ -157,9 +157,9 @@ const Matcher = {
             subMat.delete(); subMat = null;
 
             // ── 2. ORB 偵測截圖特徵點 ─────────────────────────────────────────
-            // nfeatures=2000：比 6000 快 3x，又足夠提供良好配對數量
+            // nfeatures=6000：提高初始偵測密度，由 step 3.5 grid dedup 攵至目標 2000 個
             // scoreType/patchSize/fastThreshold 使用預設值（enum 未暴露於 OpenCV.js）
-            orb   = new cv.ORB(2000, 1.2, 8, 15, 0, 2);
+            orb   = new cv.ORB(6000, 1.2, 8, 15, 0, 2);
             kpSub = new cv.KeyPointVector();
             desSub = new cv.Mat();
             const t2 = performance.now();
@@ -181,21 +181,97 @@ const Matcher = {
             // ── 3. 預先把截圖特徵點座標搬到 JS typed array ───────────────────
             // 避免 matches 迴圈中每次呼叫 kpSub.get(i) 跨越 WASM 邊界
             const t3 = performance.now();
-            const qptX     = new Float32Array(nQuery);
-            const qptY     = new Float32Array(nQuery);
-            const qptAngle = new Float32Array(nQuery);
+            const qptX      = new Float32Array(nQuery);
+            const qptY      = new Float32Array(nQuery);
+            const qptAngle  = new Float32Array(nQuery);
+            const qptResp   = new Float32Array(nQuery);
             for (let i = 0; i < nQuery; i++) {
                 const kp = kpSub.get(i);
                 qptX[i]     = kp.pt.x;
                 qptY[i]     = kp.pt.y;
-                qptAngle[i] = kp.angle;   // 度，-1 表示未定義
+                qptAngle[i] = kp.angle;      // 度，-1 表示未定義
+                qptResp[i]  = kp.response;   // FAST 評分，小崎排序用
             }
             console.log(`[ORB] 3. kpSub unpack: ${Math.round(performance.now()-t3)}ms`);
 
             // kpSub 座標已複製到 typed array，不再需要 WASM 物件
             kpSub.delete(); kpSub = null;
 
-            appState.statusText = `⏳ 正在比對 ${nQuery} 個特徵點...`;
+            // ── 3.5. 截圖特徵點空間去重（grid dedup）─────────────────
+            // 固定 20×20 格；每格最小 8×8px（圖片過小時自動用 8px）
+            // 每格上限 = min(5, ceil(2000 / nCells * 1.25))
+            //   ×1.25：預留餘裕，因為實際上不是每格都能達到上限
+            // 若原始特徵數 < 2000，直接跳過，不做任何過濾
+            const DEDUP_SKIP_THRESHOLD = 2000;
+            const GRID_DIVISIONS    = 20;
+            const GRID_MIN_PX       = 8;
+            const MAX_PER_CELL_CAP  = 5;
+
+            const cellW  = Math.max(GRID_MIN_PX, Math.floor(canvas.width  / GRID_DIVISIONS));
+            const cellH  = Math.max(GRID_MIN_PX, Math.floor(canvas.height / GRID_DIVISIONS));
+            const gCols  = Math.ceil(canvas.width  / cellW);
+            const gRows  = Math.ceil(canvas.height / cellH);
+            const nCells = gCols * gRows;
+            const maxPerCell = Math.ceil(2000 / nCells * 2);
+
+            let nKept;
+            let fqptX, fqptY, fqptAngle;
+
+            if (nQuery < DEDUP_SKIP_THRESHOLD) {
+                nKept     = nQuery;
+                fqptX     = qptX;
+                fqptY     = qptY;
+                fqptAngle = qptAngle;
+                console.log(`[ORB] 3.5 grid dedup: skip (${nQuery} < ${DEDUP_SKIP_THRESHOLD})`);
+            } else {
+                const cells = new Array(nCells);
+                for (let i = 0; i < nQuery; i++) {
+                    const cx = Math.min((qptX[i] / cellW) | 0, gCols - 1);
+                    const cy = Math.min((qptY[i] / cellH) | 0, gRows - 1);
+                    const ci = cy * gCols + cx;
+                    if (!cells[ci]) cells[ci] = [];
+                    const cell = cells[ci];
+                    const resp = qptResp[i];
+                    if (cell.length < maxPerCell) {
+                        cell.push({ idx: i, resp });
+                        for (let j = cell.length - 1; j > 0 && cell[j].resp > cell[j-1].resp; j--) {
+                            const tmp = cell[j]; cell[j] = cell[j-1]; cell[j-1] = tmp;
+                        }
+                    } else if (resp > cell[cell.length - 1].resp) {
+                        cell[cell.length - 1] = { idx: i, resp };
+                        for (let j = cell.length - 1; j > 0 && cell[j].resp > cell[j-1].resp; j--) {
+                            const tmp = cell[j]; cell[j] = cell[j-1]; cell[j-1] = tmp;
+                        }
+                    }
+                }
+                const keptIdx = [];
+                for (const cell of cells) { if (cell) for (const { idx } of cell) keptIdx.push(idx); }
+                nKept = keptIdx.length;
+                console.log(`[ORB] 3.5 grid dedup: ${nQuery} → ${nKept} kps (${gCols}×${gRows} 格, 每格 ${cellW}×${cellH}px, max ${maxPerCell}/格)`);
+
+                fqptX       = new Float32Array(nKept);
+                fqptY       = new Float32Array(nKept);
+                fqptAngle   = new Float32Array(nKept);
+                const filteredDes = new cv.Mat(nKept, 32, cv.CV_8UC1);
+                const rawSrc = desSub.data;
+                const rawDst = filteredDes.data;
+                for (let j = 0; j < nKept; j++) {
+                    const i = keptIdx[j];
+                    fqptX[j]     = qptX[i];
+                    fqptY[j]     = qptY[i];
+                    fqptAngle[j] = qptAngle[i];
+                    rawDst.set(rawSrc.subarray(i * 32, i * 32 + 32), j * 32);
+                }
+                desSub.delete();
+                desSub = filteredDes;
+            }
+
+            if (nKept < 4) {
+                appState.statusText = `❌ 截圖特徵點不足 (去重後 ${nKept} 個)，請使用包含更多細節的截圖`;
+                return;
+            }
+
+            appState.statusText = `⏳ 正在比對 ${nKept} 個特徵點...`;
 
             // ── 4. 取得快取的 desBase Mat（避免每次重複複製 768KB）────────────
             const desBase = this._getDesBase();   // ⚠️ 快取物件，不可在 finally 刪除
@@ -206,7 +282,7 @@ const Matcher = {
             matches = new cv.DMatchVectorVector();
             const t5 = performance.now();
             bf.knnMatch(desSub, desBase, matches, 2);
-            console.log(`[ORB] 5. knnMatch: ${Math.round(performance.now()-t5)}ms (${nQuery} query × ${desBase.rows} train)`);
+            console.log(`[ORB] 5. knnMatch: ${Math.round(performance.now()-t5)}ms (${desSub.rows} query × ${desBase.rows} train)`);
 
             // knnMatch 完成，descriptor Mat 與 matcher 不再需要
             desSub.delete(); desSub = null;
@@ -236,7 +312,7 @@ const Matcher = {
                 const ti = m.trainIdx;
 
                 // 角度過濾：圖片不旋轉時 query 與 base 同一鍵點的角度差應接近 0°
-                const qa = qptAngle[qi];
+                const qa = fqptAngle[qi];
                 const ta = kpsBase[ti].angle;
                 if (qa >= 0 && ta >= 0) {
                     let d = ((qa - ta) % 360 + 360) % 360;
@@ -244,8 +320,8 @@ const Matcher = {
                     if (d > ANGLE_THRESHOLD) continue;
                 }
 
-                srcX[goodN] = qptX[qi];
-                srcY[goodN] = qptY[qi];
+                srcX[goodN] = fqptX[qi];
+                srcY[goodN] = fqptY[qi];
                 dstX[goodN] = kpsBase[ti].x;
                 dstY[goodN] = kpsBase[ti].y;
                 goodN++;
