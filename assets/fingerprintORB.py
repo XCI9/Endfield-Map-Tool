@@ -227,13 +227,25 @@ class MapMatcher:
         if self.kp_large is None or self.des_large is None:
             raise RuntimeError('No base map features loaded. Call load_features() first.')
 
-        img_small = cv2.imread(small_img_path, cv2.IMREAD_GRAYSCALE)
-        if img_small is None:
+        img_raw = cv2.imread(small_img_path, cv2.IMREAD_UNCHANGED)
+        if img_raw is None:
             raise FileNotFoundError(f'Cannot load image: {small_img_path}')
 
-        kp_s, des_s = self.orb.detectAndCompute(img_small, None)
+        # 分離 alpha，轉灰階
+        if img_raw.ndim == 2:
+            img_small = img_raw
+            mask_s    = None
+        elif img_raw.shape[2] == 4:
+            img_small = cv2.cvtColor(img_raw, cv2.COLOR_BGRA2GRAY)
+            mask_s    = img_raw[:, :, 3]   # alpha 作為 mask（0=不偵測）
+        else:
+            img_small = cv2.cvtColor(img_raw, cv2.COLOR_BGR2GRAY)
+            mask_s    = None
+
+        kp_s, des_s = self.orb.detectAndCompute(img_small, mask_s)
         n_kp = len(kp_s) if kp_s else 0
-        print(f'[ORB] Template keypoints: {n_kp}')
+        alpha_info = ' [alpha mask]' if mask_s is not None else ''
+        print(f'[ORB] Template keypoints: {n_kp}{alpha_info}')
         if des_s is None or n_kp < min_good:
             print(f'[ORB] Not enough keypoints (min={min_good})')
             return None
@@ -342,8 +354,8 @@ class MapMatcher:
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    BASE_IMG  = 'map01.webp'
-    ORBF_FILE = 'map01.orbf'
+    BASE_IMG  = 'map02.webp'
+    ORBF_FILE = 'map02.orbf'
     TEST_IMG  = r'D:\Downloads\endFieldMapTest2.png'
     OUT_IMG   = 'orb_result.png'
 

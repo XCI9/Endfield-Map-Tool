@@ -121,7 +121,7 @@ const Matcher = {
 
         let subMat    = null, graySub   = null, emptyMask = null;
         let orb       = null, kpSub     = null, desSub    = null;
-        let bf        = null, matches   = null;
+        let bf        = null, matches   = null, alphaMask = null;
 
         try {
             const startTime = performance.now();
@@ -129,20 +129,38 @@ const Matcher = {
 
             // ── 1. 讀入截圖並轉灰階 ──────────────────────────────────────────
             const t1 = performance.now();
-            subMat  = cv.imread(canvas);
+            subMat  = cv.imread(canvas);   // RGBA 4 通道
             graySub = new cv.Mat();
             cv.cvtColor(subMat, graySub, cv.COLOR_RGBA2GRAY);
+
+            // 建立 alpha mask：透明區域（alpha=0）不偵測特徵
+            // cv.imread(canvas) 讀到的是 RGBA，用 split 拆出 4 個通道
+            const channels = new cv.MatVector();
+            cv.split(subMat, channels);
+            alphaMask = channels.get(3);   // alpha 通道
+            channels.get(0).delete(); channels.get(1).delete(); channels.get(2).delete();
+            channels.delete();
+            const { minVal: alphaMin, maxVal: alphaMax } = cv.minMaxLoc(alphaMask);
+            if (alphaMax === 0) {
+                appState.statusText = '❌ 截圖全透明，無法偵測特徵點';
+                return;
+            }
+            if (alphaMin === 255) {
+                // 全不透明（一般 JPG/截圖），不需要 mask，釋放改用空 Mat
+                alphaMask.delete(); alphaMask = null;
+            }
+            emptyMask = new cv.Mat();
             console.log(`[ORB] 1. imread+cvtColor: ${Math.round(performance.now()-t1)}ms`);
 
             // ── 2. ORB 偵測截圖特徵點 ─────────────────────────────────────────
             // nfeatures=2000：比 6000 快 3x，又足夠提供良好配對數量
             // scoreType/patchSize/fastThreshold 使用預設值（enum 未暴露於 OpenCV.js）
-            orb       = new cv.ORB(2000, 1.2, 8, 15, 0, 2);
-            kpSub     = new cv.KeyPointVector();
-            desSub    = new cv.Mat();
-            emptyMask = new cv.Mat();
+            orb   = new cv.ORB(2000, 1.2, 8, 15, 0, 2);
+            kpSub = new cv.KeyPointVector();
+            desSub = new cv.Mat();
             const t2 = performance.now();
-            orb.detectAndCompute(graySub, emptyMask, kpSub, desSub);
+            // 有 alpha mask 則傳入，否則傳空 Mat
+            orb.detectAndCompute(graySub, alphaMask ?? emptyMask, kpSub, desSub);
             const nQuery = kpSub.size();
             console.log(`[ORB] 2. detectAndCompute: ${Math.round(performance.now()-t2)}ms (${nQuery} kps)`);
             if (nQuery < 4 || desSub.rows < 4) {
@@ -273,6 +291,7 @@ const Matcher = {
             // ⚠️ desBase 由快取管理，不在此刪除
             if (subMat)    subMat.delete();
             if (graySub)   graySub.delete();
+            if (alphaMask) alphaMask.delete();
             if (emptyMask) emptyMask.delete();
             if (orb)       orb.delete();
             if (kpSub)     kpSub.delete();
