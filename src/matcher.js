@@ -148,9 +148,13 @@ const Matcher = {
             if (alphaMin === 255) {
                 // 全不透明（一般 JPG/截圖），不需要 mask，釋放改用空 Mat
                 alphaMask.delete(); alphaMask = null;
+                emptyMask = new cv.Mat();   // 只在此情況才建立
             }
-            emptyMask = new cv.Mat();
+            // 部分透明：alphaMask 有效，emptyMask 保持 null
             console.log(`[ORB] 1. imread+cvtColor: ${Math.round(performance.now()-t1)}ms`);
+
+            // subMat（RGBA 原圖）到此已不再需要，立即釋放
+            subMat.delete(); subMat = null;
 
             // ── 2. ORB 偵測截圖特徵點 ─────────────────────────────────────────
             // nfeatures=2000：比 6000 快 3x，又足夠提供良好配對數量
@@ -163,6 +167,12 @@ const Matcher = {
             orb.detectAndCompute(graySub, alphaMask ?? emptyMask, kpSub, desSub);
             const nQuery = kpSub.size();
             console.log(`[ORB] 2. detectAndCompute: ${Math.round(performance.now()-t2)}ms (${nQuery} kps)`);
+
+            // detectAndCompute 完成，灰階圖與 mask 不再需要
+            graySub.delete(); graySub = null;
+            if (alphaMask) { alphaMask.delete(); alphaMask = null; }
+            if (emptyMask) { emptyMask.delete(); emptyMask = null; }
+
             if (nQuery < 4 || desSub.rows < 4) {
                 appState.statusText = `❌ 截圖特徵點不足 (${nQuery} 個)，請使用包含更多細節的截圖`;
                 return;
@@ -180,6 +190,9 @@ const Matcher = {
             }
             console.log(`[ORB] 3. kpSub unpack: ${Math.round(performance.now()-t3)}ms`);
 
+            // kpSub 座標已複製到 typed array，不再需要 WASM 物件
+            kpSub.delete(); kpSub = null;
+
             appState.statusText = `⏳ 正在比對 ${nQuery} 個特徵點...`;
 
             // ── 4. 取得快取的 desBase Mat（避免每次重複複製 768KB）────────────
@@ -192,6 +205,10 @@ const Matcher = {
             const t5 = performance.now();
             bf.knnMatch(desSub, desBase, matches, 2);
             console.log(`[ORB] 5. knnMatch: ${Math.round(performance.now()-t5)}ms (${nQuery} query × ${desBase.rows} train)`);
+
+            // knnMatch 完成，descriptor Mat 與 matcher 不再需要
+            desSub.delete(); desSub = null;
+            bf.delete(); bf = null;
 
             // ── 6. Lowe ratio test → 收集配對點座標（flat typed arrays）────────
             const mSize = matches.size();
@@ -219,6 +236,9 @@ const Matcher = {
                 }
             }
             console.log(`[ORB] 6. Lowe ratio: ${Math.round(performance.now()-t6)}ms (goodN=${goodN})`);
+
+            // matches 已遍歷完畢，立即釋放（最大的 WASM 暫存物件之一）
+            matches.delete(); matches = null;
 
             if (goodN < 4) {
                 appState.statusText = `❌ 匹配特徵點不足 (${goodN} 個)，請嘗試包含更多地圖細節的截圖`;
