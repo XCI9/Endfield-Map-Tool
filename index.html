@@ -71,7 +71,7 @@
                     <button class="primary" @click="openFilePicker" :disabled="isProcessing || isLoadingBaseMap">選擇截圖</button>
                     <input ref="subFile" class="hidden" type="file" accept="image/*" @change="onSubFileChange">
                     <button @click="undoLastAction" :disabled="!canUndo || isProcessing || isLoadingBaseMap" title="復原上一步截圖">復原</button>
-                    <button @click="openRematchModal" :disabled="!canUndo || isProcessing || isLoadingBaseMap" title="調整倍率重新辨識上一步截圖">重新辨識上一圖</button>
+                    <button @click="reopenLastImageForCrop" :disabled="!canUndo || isProcessing || isLoadingBaseMap" title="重新裁剪調整上一步截圖">重新調整上一圖</button>
                     <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap">下載完整地圖</button>
                 </div>
                 <div class="hint">也可直接拖曳圖片到下方或按 Ctrl+V 貼上截圖</div>
@@ -288,31 +288,6 @@
             </div>
         </div>
 
-        <div id="rematchModal" class="crop-modal" v-show="showRematchModal">
-            <div class="crop-container confirm-container">
-                <h3>重新辨識最後一張上傳的截圖</h3>
-                <div class="confirm-content">
-                    <p>請問該截圖在畫面上的應該呈現的<strong>實際大小</strong>，相較於目前的辨識結果：</p>
-                    <div class="radio-group" style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px; text-align: left;">
-                        <label>
-                            <input type="radio" value="larger" v-model="rematchType">
-                            更大 (應該放大圖片)
-                        </label>
-                        <label>
-                            <input type="radio" value="smaller" v-model="rematchType">
-                            更小 (應該縮小圖片)
-                        </label>
-                        <label style="color: #888; font-size: 0.9em; margin-top: 5px;">
-                            註: 如果是差不多大小，由於本工具針對相同輸入辨識結果會相同，因此較難直接處理，請重新調整截圖範圍、減少截圖上的透明圖層佔比或嘗試隱藏截圖上一些基建圖示，再重新上傳
-                        </label>
-                    </div>
-                </div>
-                <div class="crop-controls">
-                    <button @click="showRematchModal = false">取消</button>
-                    <button class="confirm" @click="confirmRematch">開始重新辨識</button>
-                </div>
-            </div>
-        </div>
     </div>
 </body>
 </html>

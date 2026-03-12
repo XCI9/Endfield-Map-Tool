@@ -436,6 +436,33 @@ const CropperHandler = {
         appState.cropEditLastPoint = null;
     },
 
+    // 用現有 canvas 直接開啟裁劉介面（重新調整上一張截圖用）
+    async openCropWithCanvas(appState, canvas) {
+        if (appState.isProcessing || appState.isLoadingBaseMap) return;
+
+        cropMode = 'input';
+        currentFileCallback = (croppedCanvas) => Matcher.processScreenshotAfterCrop(appState, croppedCanvas);
+
+        // 計算透明區域比例，供狀態提示
+        const width = canvas.width;
+        const height = canvas.height;
+        const data = canvas.getContext('2d', { willReadFrequently: true })
+            .getImageData(0, 0, width, height).data;
+        let opaqueCount = 0;
+        for (let i = 3; i < data.length; i += 4) {
+            if (data[i] > 0) opaqueCount++;
+        }
+        const transparentRatio = (width * height - opaqueCount) / (width * height);
+
+        appState.showCrop = true;
+        appState.cropStatus = transparentRatio > 0.4
+            ? `⚠️ 圖片透明區域達 ${(transparentRatio * 100).toFixed(0)}%，可能影響辨識！請裁掉透明區域。`
+            : '請調整裁剪區域';
+
+        await yieldToUI();
+        await this._loadCropSourceCanvas(appState, canvas);
+    },
+
     cancelCrop(appState) {
         appState.showCrop = false;
         if (appState.cropper) {
