@@ -76,25 +76,37 @@ class MapMatcher:
         all_kp_tuples = []   # (x, y, size, angle, octave, class_id)
         all_des_list  = []
 
+        # ── 空間去重參數（每個 scale 層獨立套用）──────────────────────────
+        DEDUP_GRID    = 35   # 格子大小（原始地圖像素），越小保留越多
+        MAX_PER_CELL  = 2    # 每格最多保留幾個特徵
+        from collections import defaultdict
+
+        total_before_dedup = 0
+        total_alpha_removed = 0
+
         for scale in SCALE_LEVELS:
             if scale == 1.0:
                 img_s = img
+                alpha_s = alpha
             else:
                 sw     = max(1, int(orig_w * scale))
                 sh     = max(1, int(orig_h * scale))
                 interp = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA
                 img_s  = cv2.resize(img, (sw, sh), interpolation=interp)
+                alpha_s = None if alpha is None else cv2.resize(alpha, (sw, sh), interpolation=cv2.INTER_NEAREST)
 
-            kp_list, des = self.orb.detectAndCompute(img_s, None)
+            kp_list, des = self.orb.detectAndCompute(img_s, alpha_s)
             if des is None or len(kp_list) == 0:
                 print(f'  scale={scale:.3f}: no keypoints, skip')
                 continue
 
-            print(f'  scale={scale:.3f} ({img_s.shape[1]}x{img_s.shape[0]}): {len(kp_list)} keypoints')
+            alpha_info = ' [alpha mask]' if alpha_s is not None else ''
+            print(f'  scale={scale:.3f} ({img_s.shape[1]}x{img_s.shape[0]}): {len(kp_list)} keypoints{alpha_info}')
 
+            kp_tuples_scale = []
             for kp in kp_list:
                 ox, oy = kp.pt
-                all_kp_tuples.append((
+                kp_tuples_scale.append((
                     ox / scale,          # x  (original map coords)
                     oy / scale,          # y
                     kp.size / scale,     # size
@@ -102,63 +114,64 @@ class MapMatcher:
                     kp.octave & 0xFF,    # octave
                     kp.class_id,         # class_id
                 ))
-            all_des_list.append(des)
+            total_before_dedup += len(kp_tuples_scale)
+
+            # 每個 scale 層獨立去重
+            cell_dict = defaultdict(list)   # key: (cx, cy) -> [(response, idx), ...]
+            for idx, (x, y, sz, ang, octave, cid) in enumerate(kp_tuples_scale):
+                cx = int(x) // DEDUP_GRID
+                cy = int(y) // DEDUP_GRID
+                cell_dict[(cx, cy)].append((sz, idx))   # sz 當作 response proxy
+
+            keep_indices = []
+            n_alpha_removed_scale = 0
+            for (cx, cy), cell_pts in cell_dict.items():
+                # 若原圖有 alpha 通道，檢查該格是否全透明
+                if alpha is not None:
+                    x0 = cx * DEDUP_GRID
+                    y0 = cy * DEDUP_GRID
+                    x1 = min(x0 + DEDUP_GRID, orig_w)
+                    y1 = min(y0 + DEDUP_GRID, orig_h)
+                    if x1 > x0 and y1 > y0 and alpha[y0:y1, x0:x1].max() == 0:
+                        n_alpha_removed_scale += len(cell_pts)
+                        continue
+
+                # 每格取 size 最大的 MAX_PER_CELL 個
+                cell_pts.sort(key=lambda v: -v[0])
+                keep_indices.extend(idx for _, idx in cell_pts[:MAX_PER_CELL])
+
+            keep_indices.sort()
+            n_after_scale = len(keep_indices)
+            total_alpha_removed += n_alpha_removed_scale
+
+            if n_after_scale == 0:
+                print(f'    -> dedup: 0 kept (removed {len(kp_tuples_scale)}, alpha-removed={n_alpha_removed_scale})')
+                continue
+
+            kp_tuples_kept = [kp_tuples_scale[i] for i in keep_indices]
+            des_kept = des[keep_indices]
+            all_kp_tuples.extend(kp_tuples_kept)
+            all_des_list.append(des_kept)
+
+            removed_scale = len(kp_tuples_scale) - n_after_scale
+            alpha_info_scale = f', alpha-removed={n_alpha_removed_scale}' if alpha is not None else ''
+            print(f'    -> dedup: {len(kp_tuples_scale)} -> {n_after_scale}  (grid={DEDUP_GRID}, max={MAX_PER_CELL}/cell, removed={removed_scale}{alpha_info_scale})')
 
         if not all_des_list:
             raise RuntimeError('No features extracted from base map!')
 
         n_raw        = len(all_kp_tuples)
         des_combined = np.vstack(all_des_list)   # shape (n_raw, 32), dtype uint8
-        print(f'[ORB] Total features after multi-scale merge: {n_raw}')
-
-        # ── 空間去重：每個 DEDUP_GRID×DEDUP_GRID 格子只保留最高 response 的特徵 ──
-        # ORB response = FAST 角點強度；數值越高代表越具辨識力
-        # 去重後大幅減少 knnMatch 的比對量，且不損失辨識精度
-        DEDUP_GRID    = 25   # 格子大小（原始地圖像素），越小保留越多
-        MAX_PER_CELL  = 4    # 每格最多保留幾個特徵
-
-        # 將 kp_tuples 與 des 配對，依 (cell_x, cell_y) 分組
-        from collections import defaultdict
-        cell_dict = defaultdict(list)   # key: (cx, cy) → [(response, idx), ...]
-
-        # ORB 不直接儲存 response，改用 size 作為替代（size 大 → 更顯著的特徵）
-        for idx, (x, y, sz, ang, octave, cid) in enumerate(all_kp_tuples):
-            cx = int(x) // DEDUP_GRID
-            cy = int(y) // DEDUP_GRID
-            cell_dict[(cx, cy)].append((sz, idx))   # sz 當作 response proxy
-
-        keep_indices   = []
-        n_alpha_removed = 0
-        for (cx, cy), cell_pts in cell_dict.items():
-            # 若原圖有 alpha 通道，檢查該格是否全透明
-            if alpha is not None:
-                x0 = cx * DEDUP_GRID
-                y0 = cy * DEDUP_GRID
-                x1 = min(x0 + DEDUP_GRID, orig_w)
-                y1 = min(y0 + DEDUP_GRID, orig_h)
-                if x1 > x0 and y1 > y0 and alpha[y0:y1, x0:x1].max() == 0:
-                    n_alpha_removed += len(cell_pts)
-                    continue   # 全透明格子，捨棄所有特徵
-
-            # 每格取 size 最大的 MAX_PER_CELL 個
-            cell_pts.sort(key=lambda v: -v[0])
-            keep_indices.extend(idx for _, idx in cell_pts[:MAX_PER_CELL])
-
-        keep_indices.sort()
-        all_kp_tuples = [all_kp_tuples[i] for i in keep_indices]
-        des_combined  = des_combined[keep_indices]
-
-        n = len(all_kp_tuples)
-        alpha_info = f', alpha-removed={n_alpha_removed}' if alpha is not None else ''
-        print(f'[ORB] After spatial dedup (grid={DEDUP_GRID}, max={MAX_PER_CELL}/cell): {n}  (removed {n_raw - n}{alpha_info})')
+        alpha_info = f', alpha-removed={total_alpha_removed}' if alpha is not None else ''
+        print(f'[ORB] Total features after per-scale dedup + merge: {n_raw}  (removed {total_before_dedup - n_raw}{alpha_info})')
 
         # ── Binary format ──────────────────────────────────────────────────
         # Header:  magic(4B) + n(u32 LE)
         # Keypoints: n × 10B  →  x(u16) y(u16) size×10(u16) angle×100(u16) octave(u8) class_id(i8)
         # Descriptors: n × 32B (uint8)
         # Whole blob is gzip-compressed (level 9)
-        header    = struct.pack('<4sI', b'ORBF', n)
-        kp_bytes  = bytearray(n * 10)
+        header    = struct.pack('<4sI', b'ORBF', n_raw)
+        kp_bytes  = bytearray(n_raw * 10)
         for i, (x, y, sz, ang, octave, cid) in enumerate(all_kp_tuples):
             struct.pack_into('<HHHHBb', kp_bytes, i * 10,
                 min(65534, max(0, round(x))),

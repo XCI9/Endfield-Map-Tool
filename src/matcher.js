@@ -30,7 +30,7 @@ const Matcher = {
     //              y' = b*x + a*y + ty
     //
     // 使用 Float32Array 平坦陣列取代 {x,y}[] 物件，減少 GC 壓力與記憶體跳躍
-    _estimateSimilarity(srcX, srcY, dstX, dstY, n, threshold = 5.0, maxIter = 500, minInliers = 2) {
+    _estimateSimilarity(srcX, srcY, dstX, dstY, n, threshold = 5.0, maxIter = 500, minInliers = 1) {
         if (n < minInliers) return null;
 
         const threshSq = threshold * threshold;
@@ -212,7 +212,7 @@ const Matcher = {
             const gCols  = Math.ceil(canvas.width  / cellW);
             const gRows  = Math.ceil(canvas.height / cellH);
             const nCells = gCols * gRows;
-            const maxPerCell = Math.ceil(2000 / nCells * 2);
+            const maxPerCell = Math.ceil(DEDUP_SKIP_THRESHOLD / nCells * 2);
 
             let nKept;
             let fqptX, fqptY, fqptAngle;
@@ -295,7 +295,7 @@ const Matcher = {
             const srcY = new Float32Array(mSize);
             const dstX = new Float32Array(mSize);
             const dstY = new Float32Array(mSize);
-            const ANGLE_THRESHOLD = 5;   // 容許的最大角度差（度）
+            const ANGLE_THRESHOLD = 30;   // 容許的最大角度差（度）
             let loweN = 0;   // 通過 Lowe ratio 的數量
             let goodN = 0;   // 再通過角度過濾的數量
 
