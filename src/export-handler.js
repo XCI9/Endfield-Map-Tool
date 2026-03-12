@@ -6,7 +6,32 @@
 const ExportHandler = {
     async updatePreview(appState) {
         if (!previewCanvas || !previewCtx) return;
-        const sourceCanvas = appState.previewIncludeBase ? baseCanvas : overlayCanvas;
+
+        // 若 previewIncludeBase 與 showOriginalBase 一致，baseCanvas 已是目標狀態，可直接使用；
+        // 否則需臨時重建（例如：顯示模式只看截圖，但匯出時要包含基底地圖）
+        let sourceCanvas;
+        if (appState.previewIncludeBase === appState.showOriginalBase &&
+            CanvasManager.hasCanvasContent(baseCanvas)) {
+            sourceCanvas = baseCanvas;
+        } else {
+            const dims = CanvasManager.getBaseDimensions();
+            if (!dims) return;
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = dims.width;
+            tempCanvas.height = dims.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            if (appState.previewIncludeBase && CanvasManager.hasCanvasContent(originalBaseCanvas)) {
+                tempCtx.drawImage(originalBaseCanvas, 0, 0);
+            }
+            for (const item of appState.history) {
+                tempCtx.drawImage(
+                    item.canvas,
+                    0, 0, item.rect.width, item.rect.height,
+                    item.rect.x, item.rect.y, item.rect.width, item.rect.height
+                );
+            }
+            sourceCanvas = tempCanvas;
+        }
         if (!sourceCanvas) return;
 
         if (appState.exportBlob) appState.exportBlob = null;

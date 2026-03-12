@@ -54,8 +54,6 @@ let baseCanvas = null;
 let baseCtx = null;
 let originalBaseCanvas = null;
 let originalBaseCtx = null;
-let overlayCanvas = null;
-let overlayCtx = null;
 let previewCanvas = null;
 let previewCtx = null;
 let dropZoneEl = null;
@@ -71,7 +69,6 @@ let viewScale = 1;
 let minViewScale = 0.2;
 
 // ── App state ──
-let hasOverlay = false;
 let cropMode = 'input';
 let previewCropRect = null;
 let currentFileCallback = null;

@@ -110,7 +110,7 @@ const MapLoader = {
             appState.history = [];
             appState.canUndo = false;
 
-            CanvasManager.resetOverlayCanvas();
+            CanvasManager.rebuildCompositeCanvas(appState);
             appState.hasOutput = true;
             CanvasManager.resetView(appState.showOriginalBase);
             CanvasManager.renderView(appState.showOriginalBase);
@@ -153,7 +153,7 @@ const MapLoader = {
         if (appState.isProcessing || appState.isLoadingBaseMap) return;
         if (appState.currentMapKey === key) return;
 
-        if (hasOverlay) {
+        if (appState.history.length > 0) {
             appState.pendingMapKey = key;
             appState.showConfirmModal = true;
             return;

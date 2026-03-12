@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────
+﻿// ─────────────────────────────────────────────
 // app.js — Main entry point
 // Assembles the PetiteVue App by delegating to
 // focused module objects (CanvasManager, Matcher…)
@@ -78,8 +78,6 @@ function App() {
             baseCtx = baseCanvas.getContext('2d');
             originalBaseCanvas = document.getElementById('originalBaseCanvas');
             originalBaseCtx = originalBaseCanvas.getContext('2d');
-            overlayCanvas = document.getElementById('overlayCanvas');
-            overlayCtx = overlayCanvas.getContext('2d');
             previewCanvas = document.getElementById('previewCanvas');
             previewCtx = previewCanvas.getContext('2d');
             dropZoneEl = document.getElementById('dropZone');
@@ -168,7 +166,10 @@ function App() {
         cancelMapSwitch()           { MapLoader.cancelMapSwitch(this); },
 
         // ── View toggles ──
-        onOriginalToggle()          { CanvasManager.renderView(this.showOriginalBase); },
+        onOriginalToggle() {
+            CanvasManager.rebuildCompositeCanvas(this);
+            CanvasManager.renderView(this.showOriginalBase);
+        },
         onPreviewBaseToggle()       { ExportHandler.updatePreview(this); },
 
         // ── File / Crop ──

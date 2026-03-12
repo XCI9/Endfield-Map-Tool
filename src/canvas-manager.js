@@ -24,17 +24,32 @@ const CanvasManager = {
         return !!(canvas && canvas.width > 0 && canvas.height > 0);
     },
 
-    getViewSourceCanvas(showOriginalBase) {
-        if (showOriginalBase) {
-            // 原地圖 + 截圖燒入其中
-            if (this.hasCanvasContent(baseCanvas)) return baseCanvas;
-            if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
-            return null;
-        }
-
-        // 只有截圖（overlayCanvas 為透明底，僅含燒入的截圖區塊）
-        if (this.hasCanvasContent(overlayCanvas)) return overlayCanvas;
+    getViewSourceCanvas() {
+        if (this.hasCanvasContent(baseCanvas)) return baseCanvas;
+        if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
         return null;
+    },
+
+    // 根據 showOriginalBase 與歷史記錄從頭重建 baseCanvas
+    rebuildCompositeCanvas(appState) {
+        if (!baseCanvas || !baseCtx) return;
+        const dims = this.getBaseDimensions();
+        if (!dims) return;
+        if (baseCanvas.width !== dims.width || baseCanvas.height !== dims.height) {
+            baseCanvas.width = dims.width;
+            baseCanvas.height = dims.height;
+        }
+        baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+        if (appState.showOriginalBase && this.hasCanvasContent(originalBaseCanvas)) {
+            baseCtx.drawImage(originalBaseCanvas, 0, 0);
+        }
+        for (const item of appState.history) {
+            baseCtx.drawImage(
+                item.canvas,
+                0, 0, item.rect.width, item.rect.height,
+                item.rect.x, item.rect.y, item.rect.width, item.rect.height
+            );
+        }
     },
 
     syncBaseCanvasSizes() {
@@ -52,31 +67,10 @@ const CanvasManager = {
                 originalBaseCanvas.height = dims.height;
             }
         }
-        if (overlayCanvas) {
-            if (overlayCanvas.width !== dims.width || overlayCanvas.height !== dims.height) {
-                overlayCanvas.width = dims.width;
-                overlayCanvas.height = dims.height;
-            }
-        }
-    },
-
-    resetOverlayCanvas() {
-        const dims = this.getBaseDimensions();
-        if (!overlayCanvas || !dims) return;
-        overlayCanvas.width = dims.width;
-        overlayCanvas.height = dims.height;
-        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-        hasOverlay = false;
-    },
-
-    updateOverlayCanvas(compositeCanvas, rect) {
-        if (!overlayCanvas || !overlayCtx) return;
-        overlayCtx.drawImage(compositeCanvas, rect.x, rect.y, rect.width, rect.height);
-        hasOverlay = true;
     },
 
     renderView(showOriginalBase) {
-        const sourceCanvas = this.getViewSourceCanvas(showOriginalBase);
+        const sourceCanvas = this.getViewSourceCanvas();
         if (!outputCanvas || !sourceCanvas || !outputCtx) return;
         this.updateMinScale(showOriginalBase);
         this.clampViewOffset(showOriginalBase);
@@ -85,13 +79,14 @@ const CanvasManager = {
         outputCtx.translate(viewOffset.x, viewOffset.y);
         outputCtx.scale(viewScale, viewScale);
         outputCtx.drawImage(sourceCanvas, 0, 0);
-        // showOriginalBase=true  → 顯示乾淨原圖（供對比），不疊加截圖
-        // showOriginalBase=false → 顯示 baseCanvas（截圖已燒入），同樣不需要 overlay
+        // baseCanvas 已由 rebuildCompositeCanvas 根據 showOriginalBase 重建：
+        // showOriginalBase=true  → originalBaseCanvas + 所有截圖
+        // showOriginalBase=false → 僅截圖（透明底）
         outputCtx.restore();
     },
 
     updateMinScale(showOriginalBase) {
-        const sourceCanvas = this.getViewSourceCanvas(showOriginalBase);
+        const sourceCanvas = this.getViewSourceCanvas();
         if (!outputCanvas || !sourceCanvas) return;
         const viewWidth = outputCanvas.width || outputCanvas.clientWidth;
         const viewHeight = outputCanvas.height || outputCanvas.clientHeight;
@@ -114,7 +109,7 @@ const CanvasManager = {
     },
 
     clampViewOffset(showOriginalBase) {
-        const sourceCanvas = this.getViewSourceCanvas(showOriginalBase);
+        const sourceCanvas = this.getViewSourceCanvas();
         if (!outputCanvas || !sourceCanvas) return;
         const viewWidth = outputCanvas.width || outputCanvas.clientWidth;
         const viewHeight = outputCanvas.height || outputCanvas.clientHeight;
