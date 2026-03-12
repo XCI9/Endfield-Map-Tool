@@ -137,7 +137,7 @@ const Matcher = {
             // ── 2. ORB 偵測截圖特徵點 ─────────────────────────────────────────
             // nfeatures=2000：比 6000 快 3x，又足夠提供良好配對數量
             // scoreType/patchSize/fastThreshold 使用預設值（enum 未暴露於 OpenCV.js）
-            orb       = new cv.ORB(6000, 1.2, 8, 15, 0, 2);
+            orb       = new cv.ORB(2000, 1.2, 8, 15, 0, 2);
             kpSub     = new cv.KeyPointVector();
             desSub    = new cv.Mat();
             emptyMask = new cv.Mat();
@@ -173,7 +173,7 @@ const Matcher = {
             matches = new cv.DMatchVectorVector();
             const t5 = performance.now();
             bf.knnMatch(desSub, desBase, matches, 2);
-            console.log(`[ORB] 5. knnMatch: ${Math.round(performance.now()-t5)}ms`);
+            console.log(`[ORB] 5. knnMatch: ${Math.round(performance.now()-t5)}ms (${nQuery} query × ${desBase.rows} train)`);
 
             // ── 6. Lowe ratio test → 收集配對點座標（flat typed arrays）────────
             const mSize = matches.size();

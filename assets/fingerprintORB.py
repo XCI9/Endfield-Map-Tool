@@ -30,7 +30,7 @@ import os
 #   s=0.25 → t ∈ [4.00, 14.3]   ← 截圖縮小（縮放比 10x 落在此層）
 # 合計覆蓋 t ∈ [0.5, 14.3]，支援 0.5× ~ 10× 縮放範圍
 SCALE_LEVELS       = [2.0, 1.0, 0.5, 0.25]
-FEATURES_PER_LEVEL = 6000   # 每個縮放層抽取的最大特徵數
+FEATURES_PER_LEVEL = 12000   # 每個縮放層抽取的最大特徵數
 
 
 class MapMatcher:
@@ -54,12 +54,24 @@ class MapMatcher:
 
     def extract_and_save(self, large_img_path, output_file):
         """萃取多尺度 ORB 特徵並儲存成 .orbf (原始二進位) 檔"""
-        img = cv2.imread(large_img_path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
+        img_raw = cv2.imread(large_img_path, cv2.IMREAD_UNCHANGED)
+        if img_raw is None:
             raise FileNotFoundError(f'Cannot load image: {large_img_path}')
 
+        # 分離 alpha 通道（若有），轉灰階供 ORB 使用
+        if img_raw.ndim == 2:
+            img   = img_raw
+            alpha = None
+        elif img_raw.shape[2] == 4:
+            img   = cv2.cvtColor(img_raw, cv2.COLOR_BGRA2GRAY)
+            alpha = img_raw[:, :, 3]   # shape (H, W)，0=全透明，255=不透明
+        else:
+            img   = cv2.cvtColor(img_raw, cv2.COLOR_BGR2GRAY)
+            alpha = None
+
         orig_h, orig_w = img.shape
-        print(f'[ORB] Base map: {large_img_path} ({orig_w}x{orig_h})')
+        has_alpha = alpha is not None
+        print(f'[ORB] Base map: {large_img_path} ({orig_w}x{orig_h}){" [has alpha]" if has_alpha else ""}')
 
         all_kp_tuples = []   # (x, y, size, angle, octave, class_id)
         all_des_list  = []
@@ -95,9 +107,50 @@ class MapMatcher:
         if not all_des_list:
             raise RuntimeError('No features extracted from base map!')
 
-        n            = len(all_kp_tuples)
-        des_combined = np.vstack(all_des_list)   # shape (n, 32), dtype uint8
-        print(f'[ORB] Total features after multi-scale merge: {n}')
+        n_raw        = len(all_kp_tuples)
+        des_combined = np.vstack(all_des_list)   # shape (n_raw, 32), dtype uint8
+        print(f'[ORB] Total features after multi-scale merge: {n_raw}')
+
+        # ── 空間去重：每個 DEDUP_GRID×DEDUP_GRID 格子只保留最高 response 的特徵 ──
+        # ORB response = FAST 角點強度；數值越高代表越具辨識力
+        # 去重後大幅減少 knnMatch 的比對量，且不損失辨識精度
+        DEDUP_GRID    = 16   # 格子大小（原始地圖像素），越小保留越多
+        MAX_PER_CELL  = 4    # 每格最多保留幾個特徵
+
+        # 將 kp_tuples 與 des 配對，依 (cell_x, cell_y) 分組
+        from collections import defaultdict
+        cell_dict = defaultdict(list)   # key: (cx, cy) → [(response, idx), ...]
+
+        # ORB 不直接儲存 response，改用 size 作為替代（size 大 → 更顯著的特徵）
+        for idx, (x, y, sz, ang, octave, cid) in enumerate(all_kp_tuples):
+            cx = int(x) // DEDUP_GRID
+            cy = int(y) // DEDUP_GRID
+            cell_dict[(cx, cy)].append((sz, idx))   # sz 當作 response proxy
+
+        keep_indices   = []
+        n_alpha_removed = 0
+        for (cx, cy), cell_pts in cell_dict.items():
+            # 若原圖有 alpha 通道，檢查該格是否全透明
+            if alpha is not None:
+                x0 = cx * DEDUP_GRID
+                y0 = cy * DEDUP_GRID
+                x1 = min(x0 + DEDUP_GRID, orig_w)
+                y1 = min(y0 + DEDUP_GRID, orig_h)
+                if x1 > x0 and y1 > y0 and alpha[y0:y1, x0:x1].max() == 0:
+                    n_alpha_removed += len(cell_pts)
+                    continue   # 全透明格子，捨棄所有特徵
+
+            # 每格取 size 最大的 MAX_PER_CELL 個
+            cell_pts.sort(key=lambda v: -v[0])
+            keep_indices.extend(idx for _, idx in cell_pts[:MAX_PER_CELL])
+
+        keep_indices.sort()
+        all_kp_tuples = [all_kp_tuples[i] for i in keep_indices]
+        des_combined  = des_combined[keep_indices]
+
+        n = len(all_kp_tuples)
+        alpha_info = f', alpha-removed={n_alpha_removed}' if alpha is not None else ''
+        print(f'[ORB] After spatial dedup (grid={DEDUP_GRID}, max={MAX_PER_CELL}/cell): {n}  (removed {n_raw - n}{alpha_info})')
 
         # ── Binary format ──────────────────────────────────────────────────
         # Header:  magic(4B) + n(u32 LE)
