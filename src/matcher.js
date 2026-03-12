@@ -108,7 +108,7 @@ const Matcher = {
     // _customLevel0Override is kept for API compatibility but ignored by ORB
     async processScreenshotAfterCrop(appState, canvas, _customLevel0Override = null) {
         if (appState.isProcessing) return;
-        if (!grayBase) {
+        if (!baseMapSize) {
             appState.statusText = '❌ 基底地圖尚未載入';
             return;
         }
@@ -280,7 +280,7 @@ const Matcher = {
             const minX = Math.round(Math.min(...xs));
             const minY = Math.round(Math.min(...ys));
 
-            const baseSize = CanvasManager.getBaseDimensions() || { width: grayBase.cols, height: grayBase.rows };
+            const baseSize = CanvasManager.getBaseDimensions() || { width: baseMapSize.width, height: baseMapSize.height };
             const clampedX = Math.max(0, minX);
             const clampedY = Math.max(0, minY);
             const rect = new cv.Rect(

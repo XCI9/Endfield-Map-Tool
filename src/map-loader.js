@@ -67,7 +67,6 @@ const MapLoader = {
             return;
         }
 
-        let nextGrayBase = null;
         let nextBaseAlphaMask = null;
         let alphaMask = null;
 
@@ -89,9 +88,9 @@ const MapLoader = {
                 }
 
                 alphaMask = extractAlphaMask(rgbaBaseMat);
-                nextGrayBase = this.processGrayBase(rgbaBaseMat, alphaMask);
                 nextBaseAlphaMask = alphaMask;
                 alphaMask = null;
+                // grayBase Mat 已不再需要（ORB 改用 .orbf），僅儲存尺寸
             } catch (error) {
                 throw new Error(`prepare base mats failed: ${error?.message || error}`);
             } finally {
@@ -99,12 +98,10 @@ const MapLoader = {
                 alphaMask = safeDeleteMat(alphaMask);
             }
 
-            grayBase = safeDeleteMat(grayBase);
             baseAlphaMask = safeDeleteMat(baseAlphaMask);
 
-            grayBase = nextGrayBase;
+            baseMapSize = { width: img.width, height: img.height };
             baseAlphaMask = nextBaseAlphaMask;
-            nextGrayBase = null;
             nextBaseAlphaMask = null;
 
             CanvasManager.syncBaseCanvasSizes();
@@ -138,7 +135,6 @@ const MapLoader = {
             // isLoadingBaseMap is still true — so the JS-level guards can catch them.
             await yieldToUI();
         } catch (error) {
-            nextGrayBase = safeDeleteMat(nextGrayBase);
             nextBaseAlphaMask = safeDeleteMat(nextBaseAlphaMask);
             alphaMask = safeDeleteMat(alphaMask);
             console.error('Failed to process base map', error, {

@@ -43,7 +43,7 @@ function extractAlphaMask(sourceMat) {
 }
 
 // ── OpenCV Mats ──
-let grayBase = null;
+let baseMapSize = null;   // { width, height } of the loaded base map—替代原 grayBase Mat，節省 ~43MB
 let baseAlphaMask = null;
 let orbFingerprint = null;   // parsed .orbf data for current map
 

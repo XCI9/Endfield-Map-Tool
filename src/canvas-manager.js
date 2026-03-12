@@ -5,8 +5,8 @@
 
 const CanvasManager = {
     getBaseDimensions() {
-        if (isMatAvailable(grayBase)) {
-            return { width: grayBase.cols, height: grayBase.rows };
+        if (baseMapSize) {
+            return { width: baseMapSize.width, height: baseMapSize.height };
         }
         if (isMatAvailable(baseAlphaMask)) {
             return { width: baseAlphaMask.cols, height: baseAlphaMask.rows };
