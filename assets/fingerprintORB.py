@@ -95,12 +95,26 @@ class MapMatcher:
                 img_s  = cv2.resize(img, (sw, sh), interpolation=interp)
                 alpha_s = None if alpha is None else cv2.resize(alpha, (sw, sh), interpolation=cv2.INTER_NEAREST)
 
-            kp_list, des = self.orb.detectAndCompute(img_s, alpha_s)
+            # 對 alpha mask 往不透明區域內縮 5px（以原圖座標計，隨 scale 等比換算）
+            # 避免在透明邊界附近產生不穩定特徵點
+            mask_for_orb = None
+            mask_pad_px = 0
+            if alpha_s is not None:
+                mask_for_orb = ((alpha_s > 0).astype(np.uint8) * 255)
+                mask_pad_px = max(1, int(round(5 * scale)))
+                k = mask_pad_px * 2 + 1
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+                mask_for_orb = cv2.erode(mask_for_orb, kernel, iterations=1)
+                if cv2.countNonZero(mask_for_orb) == 0:
+                    print(f'  scale={scale:.3f}: mask empty after inward pad ({mask_pad_px}px), skip')
+                    continue
+
+            kp_list, des = self.orb.detectAndCompute(img_s, mask_for_orb)
             if des is None or len(kp_list) == 0:
                 print(f'  scale={scale:.3f}: no keypoints, skip')
                 continue
 
-            alpha_info = ' [alpha mask]' if alpha_s is not None else ''
+            alpha_info = f' [alpha mask, inward pad={mask_pad_px}px]' if alpha_s is not None else ''
             print(f'  scale={scale:.3f} ({img_s.shape[1]}x{img_s.shape[0]}): {len(kp_list)} keypoints{alpha_info}')
 
             kp_tuples_scale = []
