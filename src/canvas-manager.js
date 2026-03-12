@@ -26,13 +26,14 @@ const CanvasManager = {
 
     getViewSourceCanvas(showOriginalBase) {
         if (showOriginalBase) {
-            if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
+            // 原地圖 + 截圖燒入其中
             if (this.hasCanvasContent(baseCanvas)) return baseCanvas;
+            if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
             return null;
         }
 
-        if (this.hasCanvasContent(baseCanvas)) return baseCanvas;
-        if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
+        // 只有截圖（overlayCanvas 為透明底，僅含燒入的截圖區塊）
+        if (this.hasCanvasContent(overlayCanvas)) return overlayCanvas;
         return null;
     },
 
@@ -84,9 +85,8 @@ const CanvasManager = {
         outputCtx.translate(viewOffset.x, viewOffset.y);
         outputCtx.scale(viewScale, viewScale);
         outputCtx.drawImage(sourceCanvas, 0, 0);
-        if (showOriginalBase && hasOverlay && this.hasCanvasContent(overlayCanvas)) {
-            outputCtx.drawImage(overlayCanvas, 0, 0);
-        }
+        // showOriginalBase=true  → 顯示乾淨原圖（供對比），不疊加截圖
+        // showOriginalBase=false → 顯示 baseCanvas（截圖已燒入），同樣不需要 overlay
         outputCtx.restore();
     },
 
