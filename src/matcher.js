@@ -181,12 +181,14 @@ const Matcher = {
             // ── 3. 預先把截圖特徵點座標搬到 JS typed array ───────────────────
             // 避免 matches 迴圈中每次呼叫 kpSub.get(i) 跨越 WASM 邊界
             const t3 = performance.now();
-            const qptX = new Float32Array(nQuery);
-            const qptY = new Float32Array(nQuery);
+            const qptX     = new Float32Array(nQuery);
+            const qptY     = new Float32Array(nQuery);
+            const qptAngle = new Float32Array(nQuery);
             for (let i = 0; i < nQuery; i++) {
                 const kp = kpSub.get(i);
-                qptX[i] = kp.pt.x;
-                qptY[i] = kp.pt.y;
+                qptX[i]     = kp.pt.x;
+                qptY[i]     = kp.pt.y;
+                qptAngle[i] = kp.angle;   // 度，-1 表示未定義
             }
             console.log(`[ORB] 3. kpSub unpack: ${Math.round(performance.now()-t3)}ms`);
 
@@ -217,7 +219,9 @@ const Matcher = {
             const srcY = new Float32Array(mSize);
             const dstX = new Float32Array(mSize);
             const dstY = new Float32Array(mSize);
-            let goodN = 0;
+            const ANGLE_THRESHOLD = 5;   // 容許的最大角度差（度）
+            let loweN = 0;   // 通過 Lowe ratio 的數量
+            let goodN = 0;   // 再通過角度過濾的數量
 
             const t6 = performance.now();
             for (let i = 0; i < mSize; i++) {
@@ -225,17 +229,28 @@ const Matcher = {
                 if (row.size() < 2) continue;
                 const m = row.get(0);
                 const r = row.get(1);
-                if (m.distance < 0.75 * r.distance) {
-                    const qi = m.queryIdx;
-                    const ti = m.trainIdx;
-                    srcX[goodN] = qptX[qi];
-                    srcY[goodN] = qptY[qi];
-                    dstX[goodN] = kpsBase[ti].x;
-                    dstY[goodN] = kpsBase[ti].y;
-                    goodN++;
+                if (m.distance >= 0.75 * r.distance) continue;
+
+                loweN++;
+                const qi = m.queryIdx;
+                const ti = m.trainIdx;
+
+                // 角度過濾：圖片不旋轉時 query 與 base 同一鍵點的角度差應接近 0°
+                const qa = qptAngle[qi];
+                const ta = kpsBase[ti].angle;
+                if (qa >= 0 && ta >= 0) {
+                    let d = ((qa - ta) % 360 + 360) % 360;
+                    if (d > 180) d = 360 - d;
+                    if (d > ANGLE_THRESHOLD) continue;
                 }
+
+                srcX[goodN] = qptX[qi];
+                srcY[goodN] = qptY[qi];
+                dstX[goodN] = kpsBase[ti].x;
+                dstY[goodN] = kpsBase[ti].y;
+                goodN++;
             }
-            console.log(`[ORB] 6. Lowe ratio: ${Math.round(performance.now()-t6)}ms (goodN=${goodN})`);
+            console.log(`[ORB] 6. Lowe ratio: ${Math.round(performance.now()-t6)}ms  Lowe=${loweN} → 角度過濾後=${goodN} (閾値 ±${ANGLE_THRESHOLD}°)`);
 
             // matches 已遍歷完畢，立即釋放（最大的 WASM 暫存物件之一）
             matches.delete(); matches = null;
