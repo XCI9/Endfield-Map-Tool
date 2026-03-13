@@ -305,20 +305,12 @@ const Matcher = {
                 if (row.size() < 2) continue;
                 const m = row.get(0);
                 const r = row.get(1);
-                if (m.distance >= 0.75 * r.distance) continue;
+                if (m.distance >= 0.8 * r.distance) continue;
 
                 loweN++;
                 const qi = m.queryIdx;
                 const ti = m.trainIdx;
 
-                // 角度過濾：圖片不旋轉時 query 與 base 同一鍵點的角度差應接近 0°
-                const qa = fqptAngle[qi];
-                const ta = kpsBase[ti].angle;
-                if (qa >= 0 && ta >= 0) {
-                    let d = ((qa - ta) % 360 + 360) % 360;
-                    if (d > 180) d = 360 - d;
-                    if (d > ANGLE_THRESHOLD) continue;
-                }
 
                 srcX[goodN] = fqptX[qi];
                 srcY[goodN] = fqptY[qi];
