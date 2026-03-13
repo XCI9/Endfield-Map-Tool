@@ -106,8 +106,8 @@ const Matcher = {
     },
 
     // _customLevel0Override is kept for API compatibility but ignored by ORB
-    async processScreenshotAfterCrop(appState, canvas, _customLevel0Override = null) {
-        if (appState.isProcessing) return;
+    async processScreenshotAfterCrop(appState, canvas, _customLevel0Override = null, _retryState = null, _retryFactor = 1.0) {
+        if (appState.isProcessing && !_retryState) return;
         if (!baseMapSize) {
             appState.statusText = '❌ 基底地圖尚未載入';
             return;
@@ -117,7 +117,8 @@ const Matcher = {
             return;
         }
 
-        appState.isProcessing = true;
+        const isRootCall = !_retryState;
+        if (isRootCall) appState.isProcessing = true;
 
         let subMat    = null, graySub   = null, emptyMask = null;
         let orb       = null, kpSub     = null, desSub    = null;
@@ -125,6 +126,19 @@ const Matcher = {
 
         try {
             const startTime = performance.now();
+
+            // 內部重試狀態：當 inlier < 10 時按規則改變輸入尺寸重試
+            const retryState = _retryState || (() => {
+                const srcPixels = canvas.width * canvas.height;
+                return {
+                    baseCanvas: canvas,
+                    srcPixels,
+                    order: srcPixels < 250000 ? [2.0, 3.0, 4.0, 0.5] : [0.5, 0.33, 0.25, 2.],
+                    tried: [],
+                    best: null,
+                    attemptInliers: [],
+                };
+            })();
             appState.statusText = '⏳ 正在偵測截圖特徵點...';
 
             // ── 1. 讀入截圖並轉灰階 ──────────────────────────────────────────
@@ -336,27 +350,88 @@ const Matcher = {
                 dstX.subarray(0, goodN), dstY.subarray(0, goodN),
                 goodN, 5.0, 500
             );
-            console.log(`[ORB] 7. RANSAC: ${Math.round(performance.now()-t7)}ms`);
             if (!simResult) {
+                retryState.attemptInliers.push({ factor: _retryFactor, inliers: 0, ok: false });
+                const summary = retryState.attemptInliers
+                    .map((x) => `${x.factor}x=${x.inliers}${x.ok ? '' : '(fail)'}`)
+                    .join(', ');
+                console.log(`[ORB] 7. RANSAC: ${Math.round(performance.now()-t7)}ms (factor=${_retryFactor}x, inliers=0) | attempts: ${summary}`);
                 appState.statusText = `❌ 無法確認截圖位置 (RANSAC 失敗)，請嘗試其他截圖`;
                 return;
             }
             const { a, b, tx, ty, inliers } = simResult;
+            retryState.attemptInliers.push({ factor: _retryFactor, inliers: inliers.length, ok: true });
+            const summary = retryState.attemptInliers
+                .map((x) => `${x.factor}x=${x.inliers}${x.ok ? '' : '(fail)'}`)
+                .join(', ');
+            console.log(`[ORB] 7. RANSAC: ${Math.round(performance.now()-t7)}ms (factor=${_retryFactor}x, inliers=${inliers.length}) | attempts: ${summary}`);
+
+            // 記錄目前嘗試的候選結果，供「全部 <10 inlier」時採用最佳值
+            const currentCandidate = {
+                factor: _retryFactor,
+                canvas,
+                a, b, tx, ty,
+                inliers,
+                inliersCount: inliers.length,
+                goodN,
+            };
+            if (!retryState.best
+                || currentCandidate.inliersCount > retryState.best.inliersCount
+                || (currentCandidate.inliersCount === retryState.best.inliersCount && currentCandidate.goodN > retryState.best.goodN)) {
+                retryState.best = currentCandidate;
+            }
+
+            // 內點不足時自動重試：
+            // 1) srcPixels < 250000: 2x -> 0.5x
+            // 2) srcPixels >= 250000: 0.5x -> 2x
+            if (inliers.length < 10) {
+                const nextFactor = retryState.order.find((f) => !retryState.tried.includes(f));
+                if (nextFactor !== undefined) {
+                    retryState.tried.push(nextFactor);
+                    const src = retryState.baseCanvas;
+                    const rw = Math.max(1, Math.round(src.width * nextFactor));
+                    const rh = Math.max(1, Math.round(src.height * nextFactor));
+                    const retryCanvas = document.createElement('canvas');
+                    retryCanvas.width = rw;
+                    retryCanvas.height = rh;
+                    const rctx = retryCanvas.getContext('2d');
+                    rctx.imageSmoothingEnabled = true;
+                    rctx.imageSmoothingQuality = 'high';
+                    rctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, rw, rh);
+
+                    appState.statusText = `⚠️ 內點僅 ${inliers.length} (<10)，改用 ${nextFactor}x 尺寸重試 (${retryState.tried.length}/${retryState.order.length})...`;
+                    return await this.processScreenshotAfterCrop(appState, retryCanvas, _customLevel0Override, retryState, nextFactor);
+                }
+
+                // 已無可重試倍率：採用所有嘗試中的最佳結果（不是最後一次）
+                if (retryState.best) {
+                    appState.statusText = `⚠️ 重試後內點仍偏低，採用最佳結果（inlier=${retryState.best.inliersCount}, factor=${retryState.best.factor}x）...`;
+                }
+            }
+
+            // 若最佳候選不是目前這次，切換後續使用的參數
+            const chosen = (inliers.length < 10 && retryState.best) ? retryState.best : currentCandidate;
+            const chosenCanvas = chosen.canvas;
+            const chosenA = chosen.a;
+            const chosenB = chosen.b;
+            const chosenTx = chosen.tx;
+            const chosenTy = chosen.ty;
+            const chosenInliers = chosen.inliers;
 
             // ── 8. 將截圖 4 個角落映射至基底地圖座標 ─────────────────────────
             //   [x'] = [a  -b  tx] [x]      ← 同 Python cv2.transform(corners, M)
             //   [y']   [b   a  ty] [y]
-            const W = canvas.width, H = canvas.height;
+            const W = chosenCanvas.width, H = chosenCanvas.height;
             const mappedCorners = [[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => [
-                a * x - b * y + tx,
-                b * x + a * y + ty,
+                chosenA * x - chosenB * y + chosenTx,
+                chosenB * x + chosenA * y + chosenTy,
             ]);
 
             const xs = mappedCorners.map(p => p[0]);
             const ys = mappedCorners.map(p => p[1]);
 
             // scale = sqrt(a² + b²)  ← 同 Python sqrt(|det(M[:,:2])|)
-            const scale  = Math.sqrt(a * a + b * b);
+            const scale  = Math.sqrt(chosenA * chosenA + chosenB * chosenB);
             const finalW = Math.round(W * scale);
             const finalH = Math.round(H * scale);
 
@@ -380,13 +455,14 @@ const Matcher = {
             const hCtx = historyCanvas.getContext('2d');
             hCtx.imageSmoothingEnabled = true;
             hCtx.imageSmoothingQuality = 'high';
-            hCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, finalW, finalH);
+            hCtx.drawImage(chosenCanvas, 0, 0, chosenCanvas.width, chosenCanvas.height, 0, 0, finalW, finalH);
 
-            History.addRecord(appState, canvas, historyCanvas, rect, scale);
+            History.addRecord(appState, chosenCanvas, historyCanvas, rect, scale);
 
             const elapsed = Math.round(performance.now() - startTime);
+            console.log(`[ORB] Final inliers: ${chosenInliers.length}`);
             console.log(`[ORB] ── total: ${elapsed}ms ──`);
-            appState.statusText = `✅ 成功！耗時: ${elapsed}ms，內點: ${inliers.length}，縮放比例: ${scale.toFixed(2)}`;
+            appState.statusText = `✅ 成功！耗時: ${elapsed}ms，內點: ${chosenInliers.length}，縮放比例: ${scale.toFixed(2)}`;
             appState.hasOutput = true;
             CanvasManager.resetView(appState.showOriginalBase);
 
@@ -401,7 +477,7 @@ const Matcher = {
             if (desSub)    desSub.delete();
             if (bf)        bf.delete();
             if (matches)   matches.delete();
-            appState.isProcessing = false;
+            if (isRootCall) appState.isProcessing = false;
         }
     }
 };
