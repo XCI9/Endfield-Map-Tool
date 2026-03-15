@@ -6,6 +6,60 @@
 
 const { createApp } = PetiteVue;
 
+let openCvReadyPromise = null;
+
+function ensureOpenCvReady(timeoutMs = 20000) {
+    if (openCvReadyPromise) return openCvReadyPromise;
+
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const getCv = () => (typeof window !== 'undefined' ? window.cv : (typeof cv !== 'undefined' ? cv : undefined));
+    const isReady = (ref) => !!ref && typeof ref.Mat === 'function' && typeof ref.imread === 'function';
+
+    openCvReadyPromise = (async () => {
+        const start = Date.now();
+
+        while (Date.now() - start <= timeoutMs) {
+            let ref = getCv();
+
+            // Some builds expose cv as a Promise-like object first.
+            if (ref && typeof ref.then === 'function') {
+                try {
+                    const resolved = await Promise.race([ref, wait(1000)]);
+                    if (resolved) {
+                        if (typeof window !== 'undefined') window.cv = resolved;
+                        ref = resolved;
+                    }
+                } catch (_error) {
+                    // Ignore and continue polling.
+                }
+            }
+
+            // Emscripten style: cv.ready Promise resolves when runtime is initialized.
+            if (ref && ref.ready && typeof ref.ready.then === 'function') {
+                try {
+                    const resolvedReady = await Promise.race([ref.ready.then(() => true), wait(200)]);
+                    if (resolvedReady && typeof window !== 'undefined' && window.cv && window.cv !== ref) {
+                        ref = window.cv;
+                    }
+                } catch (_error) {
+                    // Ignore and continue polling.
+                }
+            }
+
+            if (isReady(ref)) return;
+            await wait(30);
+        }
+
+        throw new Error('OpenCV runtime init timeout');
+    })().catch((error) => {
+        // Allow retry if initialization failed once.
+        openCvReadyPromise = null;
+        throw error;
+    });
+
+    return openCvReadyPromise;
+}
+
 function App() {
     return {
         // ── Reactive UI state ──
@@ -39,16 +93,26 @@ function App() {
         pendingMapKey: null,
         history: [],
         canUndo: false,
+        isOpenCvInitialized: false,
 
         // ── Lifecycle ──
         async onOpenCvReady() {
+            if (this.isOpenCvInitialized) return;
+            this.statusText = '⏳ OpenCV 初始化中...';
+            await ensureOpenCvReady();
+            this.isOpenCvInitialized = true;
             await MapLoader.loadBaseMapFromAsset(this, this.currentMapKey);
         },
 
         mounted() {
             window.__appState = this;
             this.init();
-            if (window.__opencvPending) this.onOpenCvReady();
+            if (window.__opencvPending) {
+                this.onOpenCvReady().catch((error) => {
+                    console.error('OpenCV initialization failed', error);
+                    this.statusText = '❌ OpenCV 初始化失敗';
+                });
+            }
         },
 
         init() {

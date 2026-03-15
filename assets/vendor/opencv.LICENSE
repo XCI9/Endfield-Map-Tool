@@ -1,0 +1,5 @@
+This project uses a custom build of OpenCV.js.
+OpenCV is released under the Apache License 2.0.
+
+Original license and copyright info can be found at: 
+https://opencv.org/license/

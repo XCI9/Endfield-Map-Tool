@@ -3,7 +3,7 @@
 
 // Load OpenCV.js and Shared Logic
 try {
-    importScripts('https://docs.opencv.org/4.5.4/opencv.js');
+    importScripts('../assets/vendor/opencv.js');
     importScripts('match-logic.js');
 } catch (e) {
     console.error('Failed to load scripts in worker', e);
