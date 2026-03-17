@@ -30,7 +30,7 @@ body {
     position: sticky;
     top: 0;
     z-index: 10;
-    display: flex;
+    display: block;
     flex-direction: column;
     gap: 12px;
     padding: 16px 20px;
@@ -41,6 +41,13 @@ body {
 
 .toolbar h3 {
     margin: 0 0 6px;
+}
+
+.toolbar-subtitle {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 0;
+    font-style: italic;
 }
 
 .status {
@@ -638,7 +645,6 @@ body {
 }
 
 .toolbar-main > div {
-    display: flex;
     align-items: center;
     gap: 12px;
 }
