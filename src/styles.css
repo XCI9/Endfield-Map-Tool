@@ -71,6 +71,22 @@ body {
     font-size: 0.95rem;
 }
 
+.map-select-stack {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.map-select-note {
+    font-size: 0.75rem;
+    color: #9fa4ad;
+    line-height: 1.25;
+}
+
+.crop-enhance-toggle {
+    margin-right: auto;
+}
+
 .map-select input[type="checkbox"] {
     accent-color: var(--accent);
 }

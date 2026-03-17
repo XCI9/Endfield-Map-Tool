@@ -67,6 +67,8 @@ function App() {
         cropStatus: '請拖拽選擇要裁剪的區域',
         cropper: null,
         showCrop: false,
+        showBrightnessEnhanceOption: false,
+        cropInputOriginalCanvas: null,
         cropEditMode: false,
         cropCanUndo: false,
         cropCanRedo: false,
@@ -77,9 +79,15 @@ function App() {
         hasOutput: false,
         currentMapKey: 'map02',
         showOriginalBase: true,
+        enhanceMapBoundaryBrightness: false,
         previewIncludeBase: true,
         showPreviewModal: false,
         showConfirmModal: false,
+        confirmModalTitle: '確認切換地圖？',
+        confirmModalMessage: '目前已有處理完成的地圖結果。切換地圖將會遺失目前的進度，是否確認切換？',
+        confirmModalConfirmText: '確認',
+        confirmModalCancelText: '取消',
+        _confirmModalResolver: null,
         showInstructions: true,
         showUpdateLog: false,
         isLoadingBaseMap: false,
@@ -90,7 +98,6 @@ function App() {
         exportQuality: 0.95,
         exportCropTransparent: true,
         previewInfo: { width: 0, height: 0, size: '' },
-        pendingMapKey: null,
         history: [],
         canUndo: false,
         isOpenCvInitialized: false,
@@ -224,8 +231,28 @@ function App() {
 
         // ── Map selection ──
         async selectMap(key)        { await MapLoader.selectMap(this, key); },
-        async confirmMapSwitch()    { await MapLoader.confirmMapSwitch(this); },
-        cancelMapSwitch()           { MapLoader.cancelMapSwitch(this); },
+        openConfirmModal(title, message, confirmText = '確認', cancelText = '取消') {
+            this.confirmModalTitle = title;
+            this.confirmModalMessage = message;
+            this.confirmModalConfirmText = confirmText;
+            this.confirmModalCancelText = cancelText;
+            this.showConfirmModal = true;
+            return new Promise((resolve) => {
+                this._confirmModalResolver = resolve;
+            });
+        },
+        confirmModalAction() {
+            this.showConfirmModal = false;
+            const resolver = this._confirmModalResolver;
+            this._confirmModalResolver = null;
+            if (resolver) resolver(true);
+        },
+        cancelModalAction() {
+            this.showConfirmModal = false;
+            const resolver = this._confirmModalResolver;
+            this._confirmModalResolver = null;
+            if (resolver) resolver(false);
+        },
 
         // ── View toggles ──
         onOriginalToggle() {
@@ -247,6 +274,7 @@ function App() {
         async confirmCrop()         { await CropperHandler.confirmCrop(this); },
         async openPreviewCrop()     { await CropperHandler.openPreviewCrop(this); },
         clearPreviewCrop()          { CropperHandler.clearPreviewCrop(this); },
+        async onEnhanceBoundaryToggle(event) { await CropperHandler.onEnhanceBoundaryToggle(this, event); },
 
         // ── History ──
         undoLastAction()            { History.undoLastAction(this); },

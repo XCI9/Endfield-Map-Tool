@@ -32,6 +32,29 @@ const CropperHandler = {
         appState.cropEditLastPoint = null;
     },
 
+    _hasManualCropEdits(appState) {
+        return !!(
+            appState.cropEditUndoStack?.length ||
+            appState.cropEditRedoStack?.length
+        );
+    },
+
+    _buildEnhanceBaseCanvas(appState) {
+        if (!appState.cropInputOriginalCanvas) return null;
+        if (!appState.enhanceMapBoundaryBrightness) {
+            return this._cloneCanvas(appState.cropInputOriginalCanvas);
+        }
+
+        const fullRect = {
+            x: 0,
+            y: 0,
+            width: appState.cropInputOriginalCanvas.width,
+            height: appState.cropInputOriginalCanvas.height,
+        };
+        return BrightnessBoundaryEnhancer.applyToCroppedCanvas(appState.cropInputOriginalCanvas, fullRect)
+            || this._cloneCanvas(appState.cropInputOriginalCanvas);
+    },
+
     _pushCropUndoSnapshot(appState) {
         if (!appState.cropEditSourceCanvas) return;
         const ctx = appState.cropEditSourceCanvas.getContext('2d', { willReadFrequently: true });
@@ -69,16 +92,39 @@ const CropperHandler = {
     },
 
     async _loadCropSourceCanvas(appState, sourceCanvas) {
+        await this._replaceCropSourceCanvas(appState, sourceCanvas, {
+            preserveCropBox: false,
+            resetEditState: true,
+        });
+    },
+
+    async _replaceCropSourceCanvas(appState, sourceCanvas, options = {}) {
+        const preserveCropBox = !!options.preserveCropBox;
+        const resetEditState = options.resetEditState !== false;
+        let preservedCropData = null;
+
+        if (preserveCropBox) {
+            if (appState.cropper && typeof appState.cropper.getData === 'function') {
+                preservedCropData = appState.cropper.getData(true);
+            } else if (appState.cropEditSavedCropData) {
+                preservedCropData = appState.cropEditSavedCropData;
+            }
+        }
+
         appState.cropEditSourceCanvas = this._cloneCanvas(sourceCanvas);
         appState.cropEditOriginalCanvas = this._cloneCanvas(sourceCanvas);
-        appState.cropEditUndoStack = [];
-        appState.cropEditRedoStack = [];
-        appState.cropEditSavedCropData = null;
-        appState.cropEditIsDrawing = false;
-        appState.cropEditTransform = null;
-        appState.cropEditLastPoint = null;
-        this._updateCropHistoryState(appState);
-        await this._rebuildCropperFromSource(appState, null);
+
+        if (resetEditState) {
+            appState.cropEditUndoStack = [];
+            appState.cropEditRedoStack = [];
+            appState.cropEditSavedCropData = null;
+            appState.cropEditIsDrawing = false;
+            appState.cropEditTransform = null;
+            appState.cropEditLastPoint = null;
+            this._updateCropHistoryState(appState);
+        }
+
+        await this._rebuildCropperFromSource(appState, preservedCropData);
     },
 
     async _rebuildCropperFromSource(appState, preservedCropData = null) {
@@ -266,6 +312,7 @@ const CropperHandler = {
         }
 
         cropMode = 'input';
+        appState.showBrightnessEnhanceOption = true;
         currentFileCallback = (canvas) => Matcher.processScreenshotAfterCrop(appState, canvas);
 
         const imgObj = new Image();
@@ -333,8 +380,11 @@ const CropperHandler = {
              appState.cropStatus = '請調整裁剪區域';
         }
 
+        appState.cropInputOriginalCanvas = this._cloneCanvas(finalCanvas);
+        const sourceCanvas = this._buildEnhanceBaseCanvas(appState) || finalCanvas;
+
         await yieldToUI();
-        await this._loadCropSourceCanvas(appState, finalCanvas);
+        await this._loadCropSourceCanvas(appState, sourceCanvas);
     },
 
     resetCrop(appState) {
@@ -441,6 +491,7 @@ const CropperHandler = {
         if (appState.isProcessing || appState.isLoadingBaseMap) return;
 
         cropMode = 'input';
+        appState.showBrightnessEnhanceOption = true;
         currentFileCallback = (croppedCanvas) => Matcher.processScreenshotAfterCrop(appState, croppedCanvas);
 
         // 計算透明區域比例，供狀態提示
@@ -459,12 +510,53 @@ const CropperHandler = {
             ? `⚠️ 圖片透明區域達 ${(transparentRatio * 100).toFixed(0)}%，可能影響辨識！請裁掉透明區域。`
             : '請調整裁剪區域';
 
+        appState.cropInputOriginalCanvas = this._cloneCanvas(canvas);
+        const sourceCanvas = this._buildEnhanceBaseCanvas(appState) || canvas;
+
         await yieldToUI();
-        await this._loadCropSourceCanvas(appState, canvas);
+        await this._loadCropSourceCanvas(appState, sourceCanvas);
+    },
+
+    async onEnhanceBoundaryToggle(appState, event) {
+        const enabled = !!event?.target?.checked;
+        appState.enhanceMapBoundaryBrightness = enabled;
+
+        if (!appState.showCrop || cropMode !== 'input') return;
+        if (!appState.cropInputOriginalCanvas) return;
+
+        let shouldResetState = false;
+        if (this._hasManualCropEdits(appState)) {
+            const actionText = enabled ? '開啟' : '關閉';
+            const confirmed = await appState.openConfirmModal(
+                `確認${actionText}功能？`,
+                `${actionText}此功能會重置所有編輯狀態，是否繼續`,
+                `確認${actionText}`,
+                '取消'
+            );
+            if (!confirmed) {
+                const rollback = !enabled;
+                appState.enhanceMapBoundaryBrightness = rollback;
+                if (event?.target) event.target.checked = rollback;
+                return;
+            }
+            shouldResetState = true;
+        }
+
+        const sourceCanvas = this._buildEnhanceBaseCanvas(appState);
+        if (!sourceCanvas) return;
+        await this._replaceCropSourceCanvas(appState, sourceCanvas, {
+            preserveCropBox: !shouldResetState,
+            resetEditState: shouldResetState,
+        });
+        appState.cropStatus = enabled
+            ? '已套用邊界亮度提升，可繼續調整裁剪區域。'
+            : (shouldResetState ? '已關閉邊界亮度提升，編輯狀態已重置。' : '已關閉邊界亮度提升。');
     },
 
     cancelCrop(appState) {
         appState.showCrop = false;
+        appState.showBrightnessEnhanceOption = false;
+        appState.cropInputOriginalCanvas = null;
         if (appState.cropper) {
             appState.cropper.destroy();
             appState.cropper = null;
@@ -479,6 +571,14 @@ const CropperHandler = {
         }
         if (!appState.cropper) return;
 
+        const cropData = appState.cropper.getData(true);
+        const cropRect = {
+            x: Math.round(cropData.x),
+            y: Math.round(cropData.y),
+            width: Math.round(cropData.width),
+            height: Math.round(cropData.height)
+        };
+
         const croppedCanvas = appState.cropper.getCroppedCanvas();
         if (!croppedCanvas || croppedCanvas.width < 1 || croppedCanvas.height < 1) {
             appState.cropStatus = '裁剪區域過小，請重新選擇。';
@@ -486,14 +586,10 @@ const CropperHandler = {
         }
 
         if (cropMode === 'preview') {
-            const data = appState.cropper.getData();
-            previewCropRect = {
-                x: Math.round(data.x),
-                y: Math.round(data.y),
-                width: Math.round(data.width),
-                height: Math.round(data.height)
-            };
+            previewCropRect = cropRect;
             appState.showCrop = false;
+            appState.showBrightnessEnhanceOption = false;
+            appState.cropInputOriginalCanvas = null;
             if (appState.cropper) { appState.cropper.destroy(); appState.cropper = null; }
             this._resetCropEditState(appState);
             appState.cropStatus = '請拖拽選擇要裁剪的區域';
@@ -501,7 +597,13 @@ const CropperHandler = {
             return;
         }
 
+        // Preserve pre-crop source canvas before reset so enhancement can use
+        // the original coordinate system (pre-crop) as intended.
+        const sourceCanvasForEnhance = appState.cropEditSourceCanvas;
+
         appState.showCrop = false;
+        appState.showBrightnessEnhanceOption = false;
+        appState.cropInputOriginalCanvas = null;
         if (appState.cropper) { appState.cropper.destroy(); appState.cropper = null; }
         this._resetCropEditState(appState);
         appState.cropStatus = '請拖拽選擇要裁剪的區域';
@@ -509,7 +611,13 @@ const CropperHandler = {
         await new Promise((resolve) => requestAnimationFrame(() => resolve()));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        if (currentFileCallback) await currentFileCallback(croppedCanvas);
+        let finalCanvas = croppedCanvas;
+        if (appState.enhanceMapBoundaryBrightness && cropMode === 'input' && sourceCanvasForEnhance) {
+            const enhancedCanvas = BrightnessBoundaryEnhancer.applyToCroppedCanvas(sourceCanvasForEnhance, cropRect);
+            if (enhancedCanvas) finalCanvas = enhancedCanvas;
+        }
+
+        if (currentFileCallback) await currentFileCallback(finalCanvas);
     },
 
     async openPreviewCrop(appState) {
@@ -519,6 +627,7 @@ const CropperHandler = {
             appState.previewInfo = { width: 0, height: 0, size: '' };
         }
         cropMode = 'preview';
+        appState.showBrightnessEnhanceOption = false;
 
         appState.showCrop = true;
         appState.cropStatus = '請拖拽選擇要裁剪的區域';

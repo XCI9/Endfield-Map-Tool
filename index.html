@@ -46,6 +46,7 @@
     <script src="src/canvas-manager.js"></script>
     <script src="src/export-handler.js"></script>
     <script src="src/map-loader.js"></script>
+    <script src="src/brightness-boundary-enhancer.js"></script>
     <script src="src/cropper-handler.js"></script>
     <script src="src/matcher.js"></script>
     <script src="src/history.js"></script>
@@ -290,6 +291,13 @@
                     </div>
                 </div>
                 <div class="crop-controls">
+                    <label v-if="showBrightnessEnhanceOption" class="map-select map-select-stack crop-enhance-toggle" title="實驗性功能，僅適用完整包含UI的地圖截圖">
+                        <span>
+                            <input type="checkbox" v-model="enhanceMapBoundaryBrightness" @change="onEnhanceBoundaryToggle($event)" :disabled="isProcessing || isLoadingBaseMap">
+                            <span>提升地圖邊界亮度</span>
+                        </span>
+                        <small class="map-select-note">實驗性功能，僅適用完整包含UI的地圖截圖</small>
+                    </label>
                     <button @click="cancelCrop">取消上傳</button>
                     <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">完成擦除</button>
                     <button class="confirm" v-else @click="confirmCrop">確認裁剪</button>
@@ -299,11 +307,11 @@
 
         <div id="confirmModal" class="crop-modal" v-show="showConfirmModal">
             <div class="crop-container confirm-container">
-                <h3>確認切換地圖？</h3>
-                <div class="confirm-content">目前已有處理完成的地圖結果。切換地圖將會遺失目前的進度，是否確認切換？</div>
+                <h3>{{ confirmModalTitle }}</h3>
+                <div class="confirm-content">{{ confirmModalMessage }}</div>
                 <div class="crop-controls">
-                    <button @click="cancelMapSwitch">取消</button>
-                    <button class="confirm" @click="confirmMapSwitch">確認切換</button>
+                    <button @click="cancelModalAction">{{ confirmModalCancelText }}</button>
+                    <button class="confirm" @click="confirmModalAction">{{ confirmModalConfirmText }}</button>
                 </div>
             </div>
         </div>

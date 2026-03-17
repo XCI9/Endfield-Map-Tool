@@ -154,26 +154,16 @@ const MapLoader = {
         if (appState.currentMapKey === key) return;
 
         if (appState.history.length > 0) {
-            appState.pendingMapKey = key;
-            appState.showConfirmModal = true;
-            return;
+            const confirmed = await appState.openConfirmModal(
+                '確認切換地圖？',
+                '目前已有處理完成的地圖結果。切換地圖將會遺失目前的進度，是否確認切換？',
+                '確認切換',
+                '取消'
+            );
+            if (!confirmed) return;
         }
 
         appState.currentMapKey = key;
         await this.loadBaseMapFromAsset(appState, key);
-    },
-
-    async confirmMapSwitch(appState) {
-        appState.showConfirmModal = false;
-        if (appState.pendingMapKey) {
-            appState.currentMapKey = appState.pendingMapKey;
-            appState.pendingMapKey = null;
-            await this.loadBaseMapFromAsset(appState, appState.currentMapKey);
-        }
-    },
-
-    cancelMapSwitch(appState) {
-        appState.showConfirmModal = false;
-        appState.pendingMapKey = null;
     }
 };
