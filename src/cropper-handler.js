@@ -612,10 +612,6 @@ const CropperHandler = {
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         let finalCanvas = croppedCanvas;
-        if (appState.enhanceMapBoundaryBrightness && cropMode === 'input' && sourceCanvasForEnhance) {
-            const enhancedCanvas = BrightnessBoundaryEnhancer.applyToCroppedCanvas(sourceCanvasForEnhance, cropRect);
-            if (enhancedCanvas) finalCanvas = enhancedCanvas;
-        }
 
         if (currentFileCallback) await currentFileCallback(finalCanvas);
     },
