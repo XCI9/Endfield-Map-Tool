@@ -549,7 +549,7 @@ const CropperHandler = {
             resetEditState: shouldResetState,
         });
         appState.cropStatus = enabled
-            ? '已套用邊界亮度提升，可繼續調整裁剪區域。'
+            ? '已套用邊界亮度提升。'
             : (shouldResetState ? '已關閉邊界亮度提升，編輯狀態已重置。' : '已關閉邊界亮度提升。');
     },
 

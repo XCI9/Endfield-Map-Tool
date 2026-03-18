@@ -76,7 +76,6 @@
                     <button @click="reopenLastImageForCrop" :disabled="!canUndo || isProcessing || isLoadingBaseMap" title="重新裁剪調整上一步截圖">重新調整上一圖</button>
                     <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap">下載完整地圖</button>
                 </div>
-                <div class="hint">也可直接拖曳圖片到下方或按 Ctrl+V 貼上截圖</div>
                 <div class="status-row">
                     <p class="status">{{ statusText }}</p>
                 </div>
@@ -91,11 +90,8 @@
             <div class="instructions-content" v-show="showInstructions">
                 <ol>
                     <li>本工具原理為抓取截圖特徵，並在大地圖尋找最相似的位置及縮放大小來進行定位。</li>
-                    <li>截圖請盡量去除四周的 UI 部分，降低識別錯誤機率</li>
-                    <li>如果識別一直錯誤，可透過復原來取消當前圖片，請嘗試調整區域(例如去除地圖 UI 、調整框選區域)再次嘗試</li>
-                    <li>如果識別出的圖片很小，可以嘗試按重新辨識上一圖並指定要用更大的放大倍率</li>
-                    <li>減少地圖上的顯示標記也可以提高辨識準確率</li>
                     <li>放大倍率越小(顯示範圍越大)，辨識成功率越高</li>
+                    <li>上傳圖片也可以直接拖曳圖片到地圖區域或按 Ctrl+V 貼上截圖</li>
                 </ol>
                 
                 <div class="update-log" :class="{ collapsed: !showUpdateLog }">
@@ -228,7 +224,7 @@
                         </div>
                         <div class="format-hint">
                             <span v-if="exportFormat === 'image/png'" class="hint-text">說明：無損格式，檔案較大</span>
-                            <span v-if="exportFormat === 'image/webp'" class="hint-text">說明：有損格式，調整品質可控制大小，方便上傳 Discord</span>
+                            <span v-if="exportFormat === 'image/webp'" class="hint-text">說明：有損格式，調整品質可控制大小，方便上傳 Discord，一般0.95就很夠用</span>
                         </div>
                     </div>
                     <div class="right-group">
@@ -300,7 +296,7 @@
                     </label>
                     <button @click="cancelCrop">取消上傳</button>
                     <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">完成擦除</button>
-                    <button class="confirm" v-else @click="confirmCrop">確認裁剪</button>
+                    <button class="confirm" v-else @click="confirmCrop">確認上傳</button>
                 </div>
             </div>
         </div>
