@@ -207,6 +207,43 @@ function App() {
 
             // ── Keyboard shortcuts ──
             document.addEventListener('keydown', (e) => {
+                const key = e.key.toLowerCase();
+                const hasShortcutModifier = e.ctrlKey || e.metaKey;
+
+                if (hasShortcutModifier && !e.shiftKey && key === 'z') {
+                    // Main view undo: only when no modal is open.
+                    if (!this.showCrop && !this.showPreviewModal && !this.showConfirmModal) {
+                        e.preventDefault();
+                        this.undoLastAction();
+                        return;
+                    }
+                }
+
+                if (hasShortcutModifier && !e.shiftKey && key === 's') {
+                    // Main view export: same behavior as the toolbar download button.
+                    if (!this.showCrop && !this.showPreviewModal && !this.showConfirmModal) {
+                        e.preventDefault();
+                        this.openPreviewModal();
+                        return;
+                    }
+                }
+
+                if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Enter') {
+                    // Upload crop dialog: Enter confirms crop/upload.
+                    if (this.showCrop && cropMode === 'input') {
+                        e.preventDefault();
+                        this.confirmCrop();
+                        return;
+                    }
+
+                    // Export preview dialog: Enter starts export.
+                    if (this.showPreviewModal && !this.showCrop && !this.isExporting && !this.exportBlob) {
+                        e.preventDefault();
+                        this.startExportProcess();
+                        return;
+                    }
+                }
+
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
                     if (this.showCrop) {
                         e.preventDefault();
@@ -216,7 +253,6 @@ function App() {
 
                 if (!this.showCrop || !this.cropEditMode) return;
 
-                const key = e.key.toLowerCase();
                 if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z') {
                     e.preventDefault();
                     this.undoCropEdit();
