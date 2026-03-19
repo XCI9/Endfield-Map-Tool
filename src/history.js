@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────
 
 const History = {
-    addRecord(appState, originalCanvas, resizedCanvas, rect, scale) {
+    addRecord(appState, originalCanvas, resizedCanvas, rect, scale, wasBoundaryEnhanced = false) {
         CanvasManager.syncBaseCanvasSizes(); 
         
         // Render onto base canvas immediately
@@ -26,7 +26,8 @@ const History = {
             canvas: resizedCanvas, 
             rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
             originalCanvas: savedOriginalCanvas,
-            scale: scale
+            scale: scale,
+            wasBoundaryEnhanced: !!wasBoundaryEnhanced,
         });
         
         appState.canUndo = true;

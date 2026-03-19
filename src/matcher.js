@@ -457,7 +457,14 @@ const Matcher = {
             hCtx.imageSmoothingQuality = 'high';
             hCtx.drawImage(chosenCanvas, 0, 0, chosenCanvas.width, chosenCanvas.height, 0, 0, finalW, finalH);
 
-            History.addRecord(appState, chosenCanvas, historyCanvas, rect, scale);
+            History.addRecord(
+                appState,
+                chosenCanvas,
+                historyCanvas,
+                rect,
+                scale,
+                appState.enhanceMapBoundaryBrightness
+            );
 
             const elapsed = Math.round(performance.now() - startTime);
             console.log(`[ORB] Final inliers: ${chosenInliers.length}`);

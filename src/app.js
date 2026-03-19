@@ -349,6 +349,11 @@ function App() {
             if (!this.canUndo || this.isProcessing || this.isLoadingBaseMap) return;
             const lastAction = this.history[this.history.length - 1];
             if (!lastAction?.originalCanvas) return;
+            if (lastAction.wasBoundaryEnhanced) {
+                // Re-cropping an already enhanced image should default to disabled
+                // to avoid applying boundary enhancement twice.
+                this.enhanceMapBoundaryBrightness = false;
+            }
             // 先得到 canvas 引用再 undo，防止 undo 內部釋放
             const canvas = lastAction.originalCanvas;
             History.undoLastAction(this);
