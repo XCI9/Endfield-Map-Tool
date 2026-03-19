@@ -48,6 +48,6 @@ const History = {
 
         CanvasManager.renderView(appState.showOriginalBase);
         ExportHandler.updatePreview(appState);
-        appState.statusText = '↩️ 已復原上一步操作';
+        appState.statusText = UIText.STATUS.UNDO_DONE;
     }
 };

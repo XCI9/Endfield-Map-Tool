@@ -44,7 +44,7 @@ const MapLoader = {
 
     async loadBaseMapFromAsset(appState, mapKey) {
         const mapInfo = MAPS[mapKey] || MAPS.map02;
-        appState.statusText = `⏳ 載入基底地圖 ${mapInfo.name} 中...`;
+        appState.statusText = UIText.STATUS.BASE_MAP_LOADING(mapInfo.name);
         appState.isLoadingBaseMap = true;
 
         if (outputCtx && outputCanvas) {
@@ -62,7 +62,7 @@ const MapLoader = {
             await loadPromise;
             if (img.decode) await img.decode().catch(() => undefined);
         } catch (error) {
-            appState.statusText = `❌ 無法載入基底地圖：${mapInfo.name}。請確認 ${mapInfo.file} 是否存在。`;
+            appState.statusText = UIText.STATUS.BASE_MAP_LOAD_FAILED(mapInfo.name, mapInfo.file);
             appState.isLoadingBaseMap = false;
             return;
         }
@@ -119,7 +119,7 @@ const MapLoader = {
             // Load ORB fingerprint for the selected map
             orbFingerprint = null;
             if (mapInfo.orbf) {
-                appState.statusText = `⏳ 載入 ORB 指紋中...`;
+                appState.statusText = UIText.STATUS.ORB_LOADING;
                 await yieldToUI();
                 try {
                     orbFingerprint = await FingerprintLoader.load(mapInfo.orbf);
@@ -128,7 +128,7 @@ const MapLoader = {
                 }
             }
 
-            appState.statusText = `✅ 基底地圖已載入：${mapInfo.name}，請上傳截圖`;
+            appState.statusText = UIText.STATUS.BASE_MAP_LOADED(mapInfo.name);
 
             // Yield again before clearing the flag. Any click events that were queued
             // during the synchronous OpenCV work above will fire HERE — while
@@ -143,7 +143,7 @@ const MapLoader = {
                 imageWidth: img.width,
                 imageHeight: img.height,
             });
-            appState.statusText = '❌ 基底地圖處理失敗，請重新整理後再試';
+            appState.statusText = UIText.STATUS.BASE_MAP_PROCESS_FAILED;
         } finally {
             appState.isLoadingBaseMap = false;
         }
@@ -155,10 +155,10 @@ const MapLoader = {
 
         if (appState.history.length > 0) {
             const confirmed = await appState.openConfirmModal(
-                '確認切換地圖？',
-                '目前已有處理完成的地圖結果。切換地圖將會遺失目前的進度，是否確認切換？',
-                '確認切換',
-                '取消'
+                UIText.MODAL.SWITCH_MAP_TITLE,
+                UIText.MODAL.SWITCH_MAP_MESSAGE,
+                UIText.MODAL.SWITCH_MAP_CONFIRM,
+                UIText.MODAL.CANCEL
             );
             if (!confirmed) return;
         }

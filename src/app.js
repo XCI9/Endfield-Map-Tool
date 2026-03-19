@@ -63,8 +63,8 @@ function ensureOpenCvReady(timeoutMs = 20000) {
 function App() {
     return {
         // ── Reactive UI state ──
-        statusText: '正在初始化... ',
-        cropStatus: '請拖拽選擇要裁剪的區域',
+        statusText: UIText.STATUS.INIT,
+        cropStatus: UIText.CROP.DRAG_TO_SELECT,
         cropper: null,
         showCrop: false,
         showBrightnessEnhanceOption: false,
@@ -83,10 +83,10 @@ function App() {
         previewIncludeBase: true,
         showPreviewModal: false,
         showConfirmModal: false,
-        confirmModalTitle: '確認切換地圖？',
-        confirmModalMessage: '目前已有處理完成的地圖結果。切換地圖將會遺失目前的進度，是否確認切換？',
-        confirmModalConfirmText: '確認',
-        confirmModalCancelText: '取消',
+        confirmModalTitle: UIText.MODAL.SWITCH_MAP_TITLE,
+        confirmModalMessage: UIText.MODAL.SWITCH_MAP_MESSAGE,
+        confirmModalConfirmText: UIText.MODAL.CONFIRM,
+        confirmModalCancelText: UIText.MODAL.CANCEL,
         _confirmModalResolver: null,
         showInstructions: false,
         showUpdateLog: false,
@@ -105,7 +105,7 @@ function App() {
         // ── Lifecycle ──
         async onOpenCvReady() {
             if (this.isOpenCvInitialized) return;
-            this.statusText = '⏳ OpenCV 初始化中...';
+            this.statusText = UIText.STATUS.OPENCV_INITIALIZING;
             await ensureOpenCvReady();
             this.isOpenCvInitialized = true;
             await MapLoader.loadBaseMapFromAsset(this, this.currentMapKey);
@@ -117,7 +117,7 @@ function App() {
             if (window.__opencvPending) {
                 this.onOpenCvReady().catch((error) => {
                     console.error('OpenCV initialization failed', error);
-                    this.statusText = '❌ OpenCV 初始化失敗';
+                    this.statusText = UIText.STATUS.OPENCV_INIT_FAILED;
                 });
             }
         },
@@ -267,7 +267,7 @@ function App() {
 
         // ── Map selection ──
         async selectMap(key)        { await MapLoader.selectMap(this, key); },
-        openConfirmModal(title, message, confirmText = '確認', cancelText = '取消') {
+        openConfirmModal(title, message, confirmText = UIText.MODAL.CONFIRM, cancelText = UIText.MODAL.CANCEL) {
             this.confirmModalTitle = title;
             this.confirmModalMessage = message;
             this.confirmModalConfirmText = confirmText;
@@ -346,7 +346,7 @@ window.__opencvReady = async () => {
             await window.__appState.onOpenCvReady();
         } catch (error) {
             console.error('OpenCV initialization failed', error);
-            if (window.__appState) window.__appState.statusText = '❌ OpenCV 初始化失敗';
+            if (window.__appState) window.__appState.statusText = UIText.STATUS.OPENCV_INIT_FAILED;
         }
     } else {
         window.__opencvPending = true;

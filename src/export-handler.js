@@ -69,7 +69,7 @@ const ExportHandler = {
 
         appState.isExporting = true;
         appState.exportProgress = 0;
-        appState.statusText = '📦 準備匯出中...';
+        appState.statusText = UIText.STATUS.EXPORT_PREPARING;
         await yieldToUI();
 
         const ctx = sourceCanvas.getContext('2d');
@@ -121,7 +121,7 @@ const ExportHandler = {
             }
 
             if (!hasPixels) {
-                appState.statusText = '❌ 圖片全為透明，無法匯出';
+                appState.statusText = UIText.STATUS.EXPORT_TRANSPARENT_IMAGE;
                 appState.isExporting = false;
                 return;
             }
@@ -134,7 +134,7 @@ const ExportHandler = {
         const finalH = maxY - minY + 1;
 
         appState.exportProgress = 30;
-        appState.statusText = '✂️ 正在裁切圖片...';
+    appState.statusText = UIText.STATUS.EXPORT_CROPPING;
         await yieldToUI();
 
         const tempCanvas = document.createElement('canvas');
@@ -144,7 +144,7 @@ const ExportHandler = {
 
         appState.exportProgress = 50;
         const formatName = appState.exportFormat === 'image/webp' ? 'WebP' : 'PNG';
-        appState.statusText = `💾 正在壓縮圖片 (${formatName})...`;
+    appState.statusText = UIText.STATUS.EXPORT_COMPRESSING(formatName);
         await yieldToUI();
 
         const progressInterval = setInterval(() => {
@@ -172,10 +172,10 @@ const ExportHandler = {
                 height: finalH,
                 size: sizeMB >= 1 ? `${sizeMB.toFixed(2)} MB` : `${Math.round(sizeKB)} KB`
             };
-            appState.statusText = '✅ 匯出完成，準備下載';
+            appState.statusText = UIText.STATUS.EXPORT_DONE;
         } catch (e) {
             clearInterval(progressInterval);
-            appState.statusText = '❌ 匯出失敗: ' + e.message;
+            appState.statusText = UIText.STATUS.EXPORT_FAILED(e.message);
         } finally {
             appState.isExporting = false;
         }

@@ -109,11 +109,11 @@ const Matcher = {
     async processScreenshotAfterCrop(appState, canvas, _customLevel0Override = null, _retryState = null, _retryFactor = 1.0) {
         if (appState.isProcessing && !_retryState) return;
         if (!baseMapSize) {
-            appState.statusText = '❌ 基底地圖尚未載入';
+            appState.statusText = UIText.STATUS.BASE_MAP_NOT_LOADED;
             return;
         }
         if (!orbFingerprint) {
-            appState.statusText = '❌ ORB 指紋尚未載入，請稍候或重新選擇地圖';
+            appState.statusText = UIText.STATUS.ORB_NOT_LOADED;
             return;
         }
 
@@ -139,7 +139,7 @@ const Matcher = {
                     attemptInliers: [],
                 };
             })();
-            appState.statusText = '⏳ 正在偵測截圖特徵點...';
+            appState.statusText = UIText.STATUS.DETECTING_FEATURES;
 
             // ── 1. 讀入截圖並轉灰階 ──────────────────────────────────────────
             const t1 = performance.now();
@@ -156,7 +156,7 @@ const Matcher = {
             channels.delete();
             const { minVal: alphaMin, maxVal: alphaMax } = cv.minMaxLoc(alphaMask);
             if (alphaMax === 0) {
-                appState.statusText = '❌ 截圖全透明，無法偵測特徵點';
+                appState.statusText = UIText.STATUS.SCREENSHOT_FULLY_TRANSPARENT;
                 return;
             }
             if (alphaMin === 255) {
@@ -188,7 +188,7 @@ const Matcher = {
             if (emptyMask) { emptyMask.delete(); emptyMask = null; }
 
             if (nQuery < 4 || desSub.rows < 4) {
-                appState.statusText = `❌ 截圖特徵點不足 (${nQuery} 個)，請使用包含更多細節的截圖`;
+                appState.statusText = UIText.STATUS.FEATURES_NOT_ENOUGH(nQuery);
                 return;
             }
 
@@ -281,11 +281,11 @@ const Matcher = {
             }
 
             if (nKept < 4) {
-                appState.statusText = `❌ 截圖特徵點不足 (去重後 ${nKept} 個)，請使用包含更多細節的截圖`;
+                appState.statusText = UIText.STATUS.FEATURES_NOT_ENOUGH_AFTER_DEDUP(nKept);
                 return;
             }
 
-            appState.statusText = `⏳ 正在比對 ${nKept} 個特徵點...`;
+            appState.statusText = UIText.STATUS.MATCHING_IN_PROGRESS(nKept);
 
             // ── 4. 取得快取的 desBase Mat（避免每次重複複製 768KB）────────────
             const desBase = this._getDesBase();   // ⚠️ 快取物件，不可在 finally 刪除
@@ -338,7 +338,7 @@ const Matcher = {
             matches.delete(); matches = null;
 
             if (goodN < 4) {
-                appState.statusText = `❌ 匹配特徵點不足 (${goodN} 個)，請嘗試包含更多地圖細節的截圖`;
+                appState.statusText = UIText.STATUS.MATCHING_NOT_ENOUGH(goodN);
                 return;
             }
 
@@ -356,7 +356,7 @@ const Matcher = {
                     .map((x) => `${x.factor}x=${x.inliers}${x.ok ? '' : '(fail)'}`)
                     .join(', ');
                 console.log(`[ORB] 7. RANSAC: ${Math.round(performance.now()-t7)}ms (factor=${_retryFactor}x, inliers=0) | attempts: ${summary}`);
-                appState.statusText = `❌ 無法確認截圖位置 (RANSAC 失敗)，請嘗試其他截圖`;
+                appState.statusText = UIText.STATUS.RANSAC_FAILED;
                 return;
             }
             const { a, b, tx, ty, inliers } = simResult;
@@ -399,13 +399,13 @@ const Matcher = {
                     rctx.imageSmoothingQuality = 'high';
                     rctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, rw, rh);
 
-                    appState.statusText = `⚠️ 內點僅 ${inliers.length} (<10)，改用 ${nextFactor}x 尺寸重試 (${retryState.tried.length}/${retryState.order.length})...`;
+                    appState.statusText = UIText.STATUS.LOW_INLIERS_RETRY(inliers.length, nextFactor, retryState.tried.length, retryState.order.length);
                     return await this.processScreenshotAfterCrop(appState, retryCanvas, _customLevel0Override, retryState, nextFactor);
                 }
 
                 // 已無可重試倍率：採用所有嘗試中的最佳結果（不是最後一次）
                 if (retryState.best) {
-                    appState.statusText = `⚠️ 重試後內點仍偏低，採用最佳結果（inlier=${retryState.best.inliersCount}, factor=${retryState.best.factor}x）...`;
+                    appState.statusText = UIText.STATUS.LOW_INLIERS_USE_BEST(retryState.best.inliersCount, retryState.best.factor);
                 }
             }
 
@@ -462,7 +462,7 @@ const Matcher = {
             const elapsed = Math.round(performance.now() - startTime);
             console.log(`[ORB] Final inliers: ${chosenInliers.length}`);
             console.log(`[ORB] ── total: ${elapsed}ms ──`);
-            appState.statusText = `✅ 成功！耗時: ${elapsed}ms，內點: ${chosenInliers.length}，縮放比例: ${scale.toFixed(2)}`;
+            appState.statusText = UIText.STATUS.MATCH_SUCCESS(elapsed, chosenInliers.length, scale);
             appState.hasOutput = true;
             CanvasManager.resetView(appState.showOriginalBase);
 

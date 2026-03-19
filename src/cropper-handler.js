@@ -307,7 +307,7 @@ const CropperHandler = {
     async openCropWithFile(appState, file) {
         if (appState.isProcessing || appState.isLoadingBaseMap) return;
         if (!file.type.startsWith('image/')) {
-            appState.statusText = '❌ 只支援圖片檔案';
+            appState.statusText = UIText.STATUS.FILE_NOT_IMAGE;
             return;
         }
 
@@ -375,9 +375,9 @@ const CropperHandler = {
 
         appState.showCrop = true;
         if (transparentRatio > 0.4) {
-             appState.cropStatus = `⚠️ 圖片透明區域達 ${(transparentRatio * 100).toFixed(0)}%，可能影響辨識！請盡量保留更多實體地圖畫面，或裁切掉透明區域。`;
+               appState.cropStatus = UIText.CROP.TRANSPARENT_WARNING_WITH_MAP((transparentRatio * 100).toFixed(0));
         } else {
-             appState.cropStatus = '請調整裁剪區域';
+               appState.cropStatus = UIText.CROP.ADJUST_AREA;
         }
 
         appState.cropInputOriginalCanvas = this._cloneCanvas(finalCanvas);
@@ -394,7 +394,7 @@ const CropperHandler = {
             appState.cropEditUndoStack = [];
             appState.cropEditRedoStack = [];
             this._updateCropHistoryState(appState);
-            appState.cropStatus = '橡皮擦模式：在圖片上拖曳即可擦除。';
+            appState.cropStatus = UIText.CROP.ERASER_MODE;
             this.renderCropEditCanvas(appState);
             return;
         }
@@ -419,14 +419,14 @@ const CropperHandler = {
                 appState.cropper = null;
             }
             appState.cropEditMode = true;
-            appState.cropStatus = '橡皮擦模式：在圖片上拖曳即可擦除。';
+            appState.cropStatus = UIText.CROP.ERASER_MODE;
             await yieldToUI();
             this.renderCropEditCanvas(appState);
             return;
         }
 
         appState.cropEditMode = false;
-        appState.cropStatus = '請調整裁剪區域';
+        appState.cropStatus = UIText.CROP.ADJUST_AREA;
         this.updateCropEditCursor(appState);
         await yieldToUI();
         await this._rebuildCropperFromSource(appState, appState.cropEditSavedCropData);
@@ -507,8 +507,8 @@ const CropperHandler = {
 
         appState.showCrop = true;
         appState.cropStatus = transparentRatio > 0.4
-            ? `⚠️ 圖片透明區域達 ${(transparentRatio * 100).toFixed(0)}%，可能影響辨識！請裁掉透明區域。`
-            : '請調整裁剪區域';
+            ? UIText.CROP.TRANSPARENT_WARNING_SIMPLE((transparentRatio * 100).toFixed(0))
+            : UIText.CROP.ADJUST_AREA;
 
         appState.cropInputOriginalCanvas = this._cloneCanvas(canvas);
         const sourceCanvas = this._buildEnhanceBaseCanvas(appState) || canvas;
@@ -526,12 +526,12 @@ const CropperHandler = {
 
         let shouldResetState = false;
         if (this._hasManualCropEdits(appState)) {
-            const actionText = enabled ? '開啟' : '關閉';
+            const actionText = enabled ? UIText.MODAL.ACTION_ENABLE : UIText.MODAL.ACTION_DISABLE;
             const confirmed = await appState.openConfirmModal(
-                `確認${actionText}功能？`,
-                `${actionText}此功能會重置所有編輯狀態，是否繼續`,
-                `確認${actionText}`,
-                '取消'
+                UIText.MODAL.ENHANCE_TOGGLE_TITLE(actionText),
+                UIText.MODAL.ENHANCE_TOGGLE_MESSAGE(actionText),
+                UIText.MODAL.ENHANCE_TOGGLE_CONFIRM(actionText),
+                UIText.MODAL.CANCEL
             );
             if (!confirmed) {
                 const rollback = !enabled;
@@ -549,8 +549,8 @@ const CropperHandler = {
             resetEditState: shouldResetState,
         });
         appState.cropStatus = enabled
-            ? '已套用邊界亮度提升。'
-            : (shouldResetState ? '已關閉邊界亮度提升，編輯狀態已重置。' : '已關閉邊界亮度提升。');
+            ? UIText.CROP.ENHANCE_APPLIED
+            : (shouldResetState ? UIText.CROP.ENHANCE_DISABLED_AND_RESET : UIText.CROP.ENHANCE_DISABLED);
     },
 
     cancelCrop(appState) {
@@ -562,7 +562,7 @@ const CropperHandler = {
             appState.cropper = null;
         }
         this._resetCropEditState(appState);
-        appState.cropStatus = '請拖拽選擇要裁剪的區域';
+        appState.cropStatus = UIText.CROP.DRAG_TO_SELECT;
     },
 
     async confirmCrop(appState) {
@@ -581,7 +581,7 @@ const CropperHandler = {
 
         const croppedCanvas = appState.cropper.getCroppedCanvas();
         if (!croppedCanvas || croppedCanvas.width < 1 || croppedCanvas.height < 1) {
-            appState.cropStatus = '裁剪區域過小，請重新選擇。';
+            appState.cropStatus = UIText.CROP.AREA_TOO_SMALL;
             return;
         }
 
@@ -592,7 +592,7 @@ const CropperHandler = {
             appState.cropInputOriginalCanvas = null;
             if (appState.cropper) { appState.cropper.destroy(); appState.cropper = null; }
             this._resetCropEditState(appState);
-            appState.cropStatus = '請拖拽選擇要裁剪的區域';
+            appState.cropStatus = UIText.CROP.DRAG_TO_SELECT;
             ExportHandler.updatePreview(appState);
             return;
         }
@@ -606,7 +606,7 @@ const CropperHandler = {
         appState.cropInputOriginalCanvas = null;
         if (appState.cropper) { appState.cropper.destroy(); appState.cropper = null; }
         this._resetCropEditState(appState);
-        appState.cropStatus = '請拖拽選擇要裁剪的區域';
+        appState.cropStatus = UIText.CROP.DRAG_TO_SELECT;
 
         await new Promise((resolve) => requestAnimationFrame(() => resolve()));
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -626,7 +626,7 @@ const CropperHandler = {
         appState.showBrightnessEnhanceOption = false;
 
         appState.showCrop = true;
-        appState.cropStatus = '請拖拽選擇要裁剪的區域';
+        appState.cropStatus = UIText.CROP.DRAG_TO_SELECT;
         await yieldToUI();
         await this._loadCropSourceCanvas(appState, previewCanvas);
     },
