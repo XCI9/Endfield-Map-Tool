@@ -83,6 +83,7 @@
                     <button @click="undoLastAction" :disabled="!canUndo || isProcessing || isLoadingBaseMap" title="復原上一步截圖">復原</button>
                     <button @click="reopenLastImageForCrop" :disabled="!canUndo || isProcessing || isLoadingBaseMap" title="重新裁剪調整上一步截圖">重新調整上一圖</button>
                     <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap">下載完整地圖</button>
+                    <div style="width: 100px"></div> <!-- 占位用，避免被問題回報按鈕蓋住 -->
                 </div>
                 <div class="status-row">
                     <p class="status">{{ statusText }}</p>
