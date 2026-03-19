@@ -42,6 +42,10 @@ var UIText = {
     CROP: {
         ADJUST_AREA: '請調整裁剪區域',
         DRAG_TO_SELECT: '請拖拽選擇要裁剪的區域',
+        CANCEL_UPLOAD: '取消上傳',
+        CONFIRM_UPLOAD: '確認上傳',
+        CANCEL_CROP: '取消裁剪',
+        CONFIRM_CROP: '確認裁剪',
         AREA_TOO_SMALL: '裁剪區域過小，請重新選擇。',
         ERASER_MODE: '橡皮擦模式：在圖片上拖曳即可擦除。',
         TRANSPARENT_WARNING_WITH_MAP: (ratioPercent) => `⚠️ 圖片透明區域達 ${ratioPercent}%，可能影響辨識！請盡量保留更多實體地圖畫面，或裁切掉透明區域。`,

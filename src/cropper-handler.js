@@ -313,6 +313,8 @@ const CropperHandler = {
 
         cropMode = 'input';
         appState.showBrightnessEnhanceOption = true;
+        appState.cropCancelButtonText = UIText.CROP.CANCEL_UPLOAD;
+        appState.cropConfirmButtonText = UIText.CROP.CONFIRM_UPLOAD;
         currentFileCallback = (canvas) => Matcher.processScreenshotAfterCrop(appState, canvas);
 
         const imgObj = new Image();
@@ -492,6 +494,8 @@ const CropperHandler = {
 
         cropMode = 'input';
         appState.showBrightnessEnhanceOption = true;
+        appState.cropCancelButtonText = UIText.CROP.CANCEL_UPLOAD;
+        appState.cropConfirmButtonText = UIText.CROP.CONFIRM_UPLOAD;
         currentFileCallback = (croppedCanvas) => Matcher.processScreenshotAfterCrop(appState, croppedCanvas);
 
         // 計算透明區域比例，供狀態提示
@@ -624,6 +628,8 @@ const CropperHandler = {
         }
         cropMode = 'preview';
         appState.showBrightnessEnhanceOption = false;
+        appState.cropCancelButtonText = UIText.CROP.CANCEL_CROP;
+        appState.cropConfirmButtonText = UIText.CROP.CONFIRM_CROP;
 
         appState.showCrop = true;
         appState.cropStatus = UIText.CROP.DRAG_TO_SELECT;

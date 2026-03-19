@@ -65,6 +65,8 @@ function App() {
         // ── Reactive UI state ──
         statusText: UIText.STATUS.INIT,
         cropStatus: UIText.CROP.DRAG_TO_SELECT,
+        cropCancelButtonText: UIText.CROP.CANCEL_UPLOAD,
+        cropConfirmButtonText: UIText.CROP.CONFIRM_UPLOAD,
         cropper: null,
         showCrop: false,
         showBrightnessEnhanceOption: false,

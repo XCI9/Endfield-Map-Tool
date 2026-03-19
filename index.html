@@ -301,9 +301,9 @@
                         </span>
                         <small class="map-select-note">實驗性功能，必須使用完整包含UI的地圖截圖，16:9 可會得最佳效果</small>
                     </label>
-                    <button @click="cancelCrop">取消上傳</button>
+                    <button @click="cancelCrop">{{ cropCancelButtonText }}</button>
                     <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">完成擦除</button>
-                    <button class="confirm" v-else @click="confirmCrop">確認上傳</button>
+                    <button class="confirm" v-else @click="confirmCrop">{{ cropConfirmButtonText }}</button>
                 </div>
             </div>
         </div>
