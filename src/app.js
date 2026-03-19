@@ -88,7 +88,7 @@ function App() {
         confirmModalConfirmText: '確認',
         confirmModalCancelText: '取消',
         _confirmModalResolver: null,
-        showInstructions: true,
+        showInstructions: false,
         showUpdateLog: false,
         isLoadingBaseMap: false,
         isExporting: false,
