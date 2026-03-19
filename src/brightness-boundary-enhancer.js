@@ -5,10 +5,10 @@
 // ─────────────────────────────────────────────
 
 const BrightnessBoundaryEnhancer = {
-    CONFIG_TOP:   { ratio: 0.30, a: 7.216, b: 0.0129, c: 0.887, max_gain: 8.10 },
-    CONFIG_BOT:   { ratio: 0.30, a: 3.374, b: 0.0101, c: 0.872, max_gain: 4.25 },
+    CONFIG_TOP:   { ratio: 0.30, a: 6.6790, b: 0.0129, c:  0.8210, max_gain: 8.10 },
+    CONFIG_BOT:   { ratio: 0.30, a: 3.5758, b: 0.0101, c: 0.9242, max_gain: 4.25 },
     CONFIG_LEFT:  { ratio: 0.15, a: 3.001, b: 0.0113, c: 0.884, max_gain: 3.89 },
-    CONFIG_RIGHT: { ratio: 0.15, a: 3.872, b: 0.0102, c: 0.795, max_gain: 4.67 },
+    CONFIG_RIGHT: { ratio: 0.15, a: 3.1116, b: 0.0102, c:  0.6384, max_gain: 4.67 },
 
     // Stretch/compress the axis so gain reaches exactly 1 at ratio boundary.
     _resolveAxisScale(config, spanLength) {
