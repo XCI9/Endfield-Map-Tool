@@ -299,7 +299,7 @@
                             <input type="checkbox" v-model="enhanceMapBoundaryBrightness" @change="onEnhanceBoundaryToggle($event)" :disabled="isProcessing || isLoadingBaseMap">
                             <span>提升地圖邊界亮度</span>
                         </span>
-                        <small class="map-select-note">實驗性功能，僅適用完整包含UI的地圖截圖</small>
+                        <small class="map-select-note">實驗性功能，必須使用完整包含UI的地圖截圖，16:9 可會得最佳效果</small>
                     </label>
                     <button @click="cancelCrop">取消上傳</button>
                     <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">完成擦除</button>
