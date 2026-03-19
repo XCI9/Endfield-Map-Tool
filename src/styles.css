@@ -623,6 +623,18 @@ body {
     padding-left: 5px;
 }
 
+.log-loading {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.log-error {
+    margin: 0;
+    color: #ff8a80;
+    font-size: 0.9rem;
+}
+
 
 .log-header h4 {
     margin: 0;

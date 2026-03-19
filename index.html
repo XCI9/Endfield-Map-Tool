@@ -51,6 +51,7 @@
     <script src="src/cropper-handler.js"></script>
     <script src="src/matcher.js"></script>
     <script src="src/history.js"></script>
+    <script src="src/changelog-loader.js"></script>
     <script defer src="src/app.js"></script>
     <script async src="assets/vendor/opencv.js" onload="onOpenCvReady();"></script>
 </head>
@@ -65,7 +66,7 @@
         <header class="toolbar">
             <div class="toolbar-main">
                 <div class="toolbar-header">
-                    <h3>終末地地圖合併工具 v1.1.0.1</h3>
+                    <h3>終末地地圖合併工具 {{ appVersion }}</h3>
                     <span class="toolbar-subtitle">將多張遊戲內的地圖截圖拼成一張大圖</span>
                 </div>
                 <div class="actions">
@@ -107,74 +108,13 @@
                         <span class="toggle-icon">{{ showUpdateLog ? '▼' : '◀' }}</span>
                     </div>
                     <div class="log-content" v-show="showUpdateLog">
-                        <ul>
-                            <li>
-                                <span class="version">v1.1.0.1</span>
+                        <p v-if="isChangelogLoading" class="log-loading">更新日誌載入中...</p>
+                        <p v-else-if="changelogLoadError" class="log-error">{{ changelogLoadError }}</p>
+                        <ul v-else>
+                            <li v-for="entry in changelogEntries" :key="entry.version">
+                                <span class="version">{{ entry.version }}</span>
                                 <ul>
-                                    <li>將套件包入本地，避免報錯/改善載入速度</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.1.0.0</span>
-                                <ul>
-                                    <li>更新 1.1 地圖</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.0.6.0</span>
-                                <ul>
-                                    <li>更換後端辨識方式，現在圖片大小的要求更低，記憶體使用更低</li>
-                                    <li>更改版本號，前兩碼與遊戲版本對齊</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.5.1</span>
-                                <ul>
-                                    <li>改善景玉谷辨識不出來的問題。</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.5.0</span>
-                                <ul>
-                                    <li>新增橡皮擦功能。</li>
-                                    <li>修正切換地圖時崩潰問題。</li>
-                                    <li>大幅降低記憶體使用量。</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.4.0</span>
-                                <ul>
-                                    <li>提升對透明圖層的處理能力。</li>
-                                    <li>過濾掉一些明顯不合理的結果，如:辨識結果大部分都落在透明區域</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.3.0</span>
-                                <ul>
-                                    <li>保留上傳圖片的透明圖層，並盡量不影響辨識結果。</li>
-                                    <li>新增重新辨識功能。</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.2.0</span>
-                                <ul>
-                                    <li>大幅改善辨識速度。</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.1.0</span>
-                                <ul>
-                                    <li>新增 webp 匯出格式</li>
-                                    <li>新增匯出大小預覽</li>
-                                    <li>優化 UI 體驗</li>
-                                    <li>改善辨識準確率</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <span class="version">v1.0.0</span>
-                                <ul>
-                                    <li>新增四號谷地與武陵地圖切換功能。</li>
-                                    <li>基本截圖上傳與拼接功能。</li>
+                                    <li v-for="(change, idx) in entry.changes" :key="`${entry.version}-${idx}`">{{ change }}</li>
                                 </ul>
                             </li>
                         </ul>

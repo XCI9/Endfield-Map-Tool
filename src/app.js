@@ -92,6 +92,10 @@ function App() {
         _confirmModalResolver: null,
         showInstructions: false,
         showUpdateLog: false,
+        appVersion: 'v1.1.0.1',
+        changelogEntries: [],
+        isChangelogLoading: true,
+        changelogLoadError: '',
         isLoadingBaseMap: false,
         isExporting: false,
         exportProgress: 0,
@@ -116,11 +120,36 @@ function App() {
         mounted() {
             window.__appState = this;
             this.init();
+            this.loadChangelog();
             if (window.__opencvPending) {
                 this.onOpenCvReady().catch((error) => {
                     console.error('OpenCV initialization failed', error);
                     this.statusText = UIText.STATUS.OPENCV_INIT_FAILED;
                 });
+            }
+        },
+
+        async loadChangelog() {
+            this.isChangelogLoading = true;
+            this.changelogLoadError = '';
+
+            if (!window.ChangelogLoader || typeof window.ChangelogLoader.load !== 'function') {
+                this.isChangelogLoading = false;
+                this.changelogLoadError = UIText.STATUS.CHANGELOG_LOAD_FAILED;
+                return;
+            }
+
+            try {
+                const parsed = await window.ChangelogLoader.load('CHANGELOG.md');
+                this.changelogEntries = parsed.entries || [];
+                if (parsed.currentVersion) {
+                    this.appVersion = parsed.currentVersion;
+                }
+            } catch (error) {
+                console.warn('Changelog load failed', error);
+                this.changelogLoadError = UIText.STATUS.CHANGELOG_LOAD_FAILED;
+            } finally {
+                this.isChangelogLoading = false;
             }
         },
 

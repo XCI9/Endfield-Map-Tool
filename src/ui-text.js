@@ -34,6 +34,7 @@ var UIText = {
         ORB_LOADING: '⏳ 載入 ORB 指紋中...',
         BASE_MAP_LOADED: (mapName) => `✅ 基底地圖已載入：${mapName}，請上傳截圖`,
         BASE_MAP_PROCESS_FAILED: '❌ 基底地圖處理失敗，請重新整理後再試',
+        CHANGELOG_LOAD_FAILED: '❌ 更新日誌載入失敗，請稍後重新整理',
 
         FILE_NOT_IMAGE: '❌ 只支援圖片檔案',
         UNDO_DONE: '↩️ 已復原上一步操作',

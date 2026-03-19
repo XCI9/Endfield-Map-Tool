@@ -31,6 +31,18 @@ This tool simplifies the process of creating complete map composites by analyzin
 - **Overlap**: Ensure your new screenshot has some overlap with known areas of the base map or previous screenshots if you are building out from a known point (though currently, it strictly matches against the base map).
 - **Resolution**: Higher resolution screenshots generally yield better results, but processing time may increase.
 
+## Update Changelog
+
+The in-app update log now loads from [CHANGELOG.md](CHANGELOG.md) at startup.
+
+When you want to publish a new version note:
+1. Edit [CHANGELOG.md](CHANGELOG.md).
+2. Add a new section at the top in this format:
+   - `## vX.Y.Z`
+   - `- change item 1`
+   - `- change item 2`
+3. Refresh the page. No HTML change is required.
+
 ## License
 
 This project is licensed under the [GNU General Public License v2.0](LICENSE).
