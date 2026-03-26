@@ -700,6 +700,7 @@ body {
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
+    padding-right: 50px; /* Make space for issue report link */
 }
 
 .toolbar-main {
@@ -721,7 +722,6 @@ body {
 }
 
 .status-row {
-    width: 100%;
     margin-top: 4px;
 }
 
