@@ -789,6 +789,12 @@ body {
     transform: translateY(0);
     opacity: 1;
     animation: status-toast-in 0.18s ease-out;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.status-toast.is-fading {
+    opacity: 0;
+    transform: translateY(8px);
 }
 
 .status-toast-message {

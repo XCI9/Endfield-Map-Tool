@@ -101,7 +101,7 @@
         </header>
 
         <div class="status-toast-layer" aria-live="polite" aria-atomic="true">
-            <div v-if="statusToastVisible" class="status-toast" :class="`is-${statusToastTone}`">
+            <div v-if="statusToastVisible" class="status-toast" :class="[`is-${statusToastTone}`, { 'is-fading': statusToastFading }]">
                 <div class="status-toast-message">{{ statusToastMessage }}</div>
             </div>
         </div>

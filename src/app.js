@@ -15,6 +15,8 @@ const STATUS_TOAST_DURATION_MS = Object.freeze({
     error: 5000,
 });
 
+const STATUS_TOAST_FADE_OUT_MS = 500;
+
 function getLoadingStatusHintsByLocale() {
     const localeHints = I18N.getStatusToastLoadingKeywords?.();
     if (Array.isArray(localeHints)) {
@@ -44,6 +46,7 @@ function setupStatusToastInterceptors(appState) {
     let isExportingValue = appState.isExporting;
 
     let activeTimer = null;
+    let fadeOutTimer = null;
     let sequence = 0;
 
     const clearTimer = () => {
@@ -53,11 +56,29 @@ function setupStatusToastInterceptors(appState) {
         }
     };
 
+    const clearFadeOutTimer = () => {
+        if (fadeOutTimer) {
+            clearTimeout(fadeOutTimer);
+            fadeOutTimer = null;
+        }
+    };
+
+    const cancelFadeOut = () => {
+        clearFadeOutTimer();
+        appState.statusToastFading = false;
+    };
+
     const hideToast = () => {
         clearTimer();
-        appState.statusToastVisible = false;
-        appState.statusToastMessage = '';
-        appState.statusToastTone = 'info';
+        if (!appState.statusToastVisible) return;
+        appState.statusToastFading = true;
+        clearFadeOutTimer();
+        fadeOutTimer = setTimeout(() => {
+            appState.statusToastVisible = false;
+            appState.statusToastMessage = '';
+            appState.statusToastTone = 'info';
+            appState.statusToastFading = false;
+        }, STATUS_TOAST_FADE_OUT_MS);
     };
 
     const resolveDurationMs = (tone) => {
@@ -72,6 +93,7 @@ function setupStatusToastInterceptors(appState) {
         }
 
         clearTimer();
+        cancelFadeOut();
         sequence += 1;
         const currentSequence = sequence;
 
@@ -152,6 +174,7 @@ function setupStatusToastInterceptors(appState) {
 
     appState._disposeStatusToastInterceptors = () => {
         clearTimer();
+        clearFadeOutTimer();
     };
 
     renderToastFromStatus(statusTextValue);
@@ -216,6 +239,7 @@ function App() {
         supportedLanguages: I18N.getSupportedLanguages(),
         statusText: UIText.STATUS.INIT,
         statusToastVisible: false,
+        statusToastFading: false,
         statusToastMessage: '',
         statusToastTone: 'info',
         cropStatus: UIText.CROP.DRAG_TO_SELECT,
