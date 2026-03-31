@@ -63,6 +63,8 @@ function ensureOpenCvReady(timeoutMs = 20000) {
 function App() {
     return {
         // ── Reactive UI state ──
+        currentLanguage: I18N.getLanguage(),
+        supportedLanguages: I18N.getSupportedLanguages(),
         statusText: UIText.STATUS.INIT,
         cropStatus: UIText.CROP.DRAG_TO_SELECT,
         cropCancelButtonText: UIText.CROP.CANCEL_UPLOAD,
@@ -107,6 +109,7 @@ function App() {
         history: [],
         canUndo: false,
         isOpenCvInitialized: false,
+        _i18nUnsubscribe: null,
 
         // ── Lifecycle ──
         async onOpenCvReady() {
@@ -119,6 +122,11 @@ function App() {
 
         mounted() {
             window.__appState = this;
+            this.applyHeadTranslations();
+            this._i18nUnsubscribe = I18N.onChange(() => {
+                this.currentLanguage = I18N.getLanguage();
+                this.applyHeadTranslations();
+            });
             this.init();
             this.loadChangelog();
             if (window.__opencvPending) {
@@ -294,6 +302,110 @@ function App() {
             });
 
             window.addEventListener('resize', () => CropperHandler.renderCropEditCanvas(this));
+        },
+
+        t(key) {
+            // Ensure template re-render tracks language state.
+            const _lang = this.currentLanguage;
+            const args = Array.prototype.slice.call(arguments, 1);
+            return I18N.t.apply(I18N, [key].concat(args));
+        },
+
+        getMapName(mapKey) {
+            // Ensure map labels update immediately after language switch.
+            const _lang = this.currentLanguage;
+            return I18N.getMapName(mapKey);
+        },
+
+        applyHeadTranslations() {
+            document.documentElement.lang = this.currentLanguage;
+            document.title = this.t('head.title');
+
+            const setMeta = (selector, value) => {
+                const element = document.querySelector(selector);
+                if (element) element.setAttribute('content', value);
+            };
+
+            setMeta('meta[name="description"]', this.t('head.description'));
+            setMeta('meta[name="keywords"]', this.t('head.keywords'));
+            setMeta('meta[property="og:title"]', this.t('head.ogTitle'));
+            setMeta('meta[property="og:description"]', this.t('head.ogDescription'));
+            setMeta('meta[name="twitter:title"]', this.t('head.twitterTitle'));
+            setMeta('meta[name="twitter:description"]', this.t('head.twitterDescription'));
+        },
+
+        refreshLocalizedTransientText() {
+            // Rebuild transient text from current runtime state so language
+            // switching reflects the in-progress flow instead of resetting.
+            if (this.isLoadingBaseMap) {
+                this.statusText = UIText.STATUS.BASE_MAP_LOADING(this.currentMapKey);
+            } else if (!this.isOpenCvInitialized) {
+                this.statusText = UIText.STATUS.OPENCV_INITIALIZING;
+            } else if (this.isExporting) {
+                if (this.exportProgress < 30) {
+                    this.statusText = UIText.STATUS.EXPORT_PREPARING;
+                } else if (this.exportProgress < 50) {
+                    this.statusText = UIText.STATUS.EXPORT_CROPPING;
+                } else {
+                    const formatName = this.exportFormat === 'image/webp' ? 'WebP' : 'PNG';
+                    this.statusText = UIText.STATUS.EXPORT_COMPRESSING(formatName);
+                }
+            } else if (this.isProcessing) {
+                this.statusText = UIText.STATUS.DETECTING_FEATURES;
+            } else if (this.hasOutput) {
+                this.statusText = UIText.STATUS.BASE_MAP_LOADED(this.currentMapKey);
+            } else {
+                this.statusText = UIText.STATUS.INIT;
+            }
+
+            this.confirmModalCancelText = UIText.MODAL.CANCEL;
+
+            if (!this.showConfirmModal) {
+                this.confirmModalTitle = UIText.MODAL.SWITCH_MAP_TITLE;
+                this.confirmModalMessage = UIText.MODAL.SWITCH_MAP_MESSAGE;
+                this.confirmModalConfirmText = UIText.MODAL.CONFIRM;
+            }
+
+            const isPreviewCrop = cropMode === 'preview';
+            this.cropCancelButtonText = isPreviewCrop ? UIText.CROP.CANCEL_CROP : UIText.CROP.CANCEL_UPLOAD;
+            this.cropConfirmButtonText = isPreviewCrop ? UIText.CROP.CONFIRM_CROP : UIText.CROP.CONFIRM_UPLOAD;
+
+            if (this.showCrop) {
+                this.cropStatus = this.cropEditMode
+                    ? UIText.CROP.ERASER_MODE
+                    : UIText.CROP.DRAG_TO_SELECT;
+            }
+
+            if (this.changelogLoadError) {
+                this.changelogLoadError = UIText.STATUS.CHANGELOG_LOAD_FAILED;
+            }
+        },
+
+        changeLanguage(lang) {
+            I18N.setLanguage(lang);
+            this.currentLanguage = I18N.getLanguage();
+            this.applyHeadTranslations();
+            this.refreshLocalizedTransientText();
+
+            const switchedMessage = UIText.STATUS.LANGUAGE_SWITCHED || UIText.STATUS.INIT;
+            if (this.currentLanguage !== 'zh-TW' && UIText.STATUS.AI_TRANSLATION_NOTE) {
+                this.statusText = `${switchedMessage} (${UIText.STATUS.AI_TRANSLATION_NOTE})`;
+            } else {
+                this.statusText = switchedMessage;
+            }
+
+            // Language change can alter toolbar size; reflow and sync canvas size.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    CanvasManager.resizeOutputCanvas(this.showOriginalBase);
+                    if (this.showPreviewModal) {
+                        ExportHandler.updatePreview(this);
+                    }
+                    if (this.showCrop && this.cropEditMode) {
+                        CropperHandler.renderCropEditCanvas(this);
+                    }
+                });
+            });
         },
 
         // ── Map selection ──
