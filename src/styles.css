@@ -8,7 +8,10 @@
     --accent: #7c4dff;
     --accent-strong: #6a3dff;
     --success: #4caf50;
+    --error: #f44336;
     --warn: #ffb300;
+    --info: #1e88e5;
+    --status-toast-avoid-bottom: 0px;
 }
 
 * {
@@ -48,12 +51,6 @@ body {
     color: var(--muted);
     margin: 0;
     font-style: italic;
-}
-
-.status {
-    margin: 0;
-    color: var(--success);
-    font-weight: 600;
 }
 
 .actions {
@@ -773,6 +770,66 @@ body {
     font-weight: 600;
 }
 
+.status-toast-layer {
+    position: fixed;
+    right: 20px;
+    bottom: calc(20px + var(--status-toast-avoid-bottom));
+    z-index: 95;
+    width: min(300px, calc(100vw - 40px));
+    pointer-events: none;
+}
+
+.status-toast {
+    border-radius: 10px;
+    border: 1px solid transparent;
+    color: #fff;
+    padding: 12px 14px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(4px);
+    transform: translateY(0);
+    opacity: 1;
+    animation: status-toast-in 0.18s ease-out;
+}
+
+.status-toast-message {
+    font-size: 0.95rem;
+    line-height: 1.45;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.status-toast.is-success {
+    background: rgba(46, 125, 50, 0.94);
+    border-color: rgba(165, 214, 167, 0.45);
+}
+
+.status-toast.is-error {
+    background: rgba(198, 40, 40, 0.94);
+    border-color: rgba(255, 205, 210, 0.5);
+}
+
+.status-toast.is-warn {
+    background: rgba(245, 124, 0, 0.94);
+    border-color: rgba(255, 224, 178, 0.5);
+}
+
+.status-toast.is-loading,
+.status-toast.is-info {
+    background: rgba(21, 101, 192, 0.95);
+    border-color: rgba(187, 222, 251, 0.5);
+}
+
+@keyframes status-toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 @media (max-width: 600px) {
     .top-right-actions {
         top: 12px;
@@ -792,6 +849,11 @@ body {
     .language-dropdown select {
         max-width: 88px;
         font-size: 0.85rem;
+    }
+
+    .status-toast-layer {
+        right: 12px;
+        width: calc(100vw - 24px);
     }
 }
 

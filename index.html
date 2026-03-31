@@ -97,11 +97,14 @@
                     <button @click="reopenLastImageForCrop" :disabled="!canUndo || isProcessing || isLoadingBaseMap" :title="t('page.toolbar.recropLastTitle')">{{ t('page.toolbar.recropLast') }}</button>
                     <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap">{{ t('page.toolbar.downloadFullMap') }}</button>
                 </div>
-                <div class="status-row">
-                    <p class="status">{{ statusText }}</p>
-                </div>
             </div>
         </header>
+
+        <div class="status-toast-layer" aria-live="polite" aria-atomic="true">
+            <div v-if="statusToastVisible" class="status-toast" :class="`is-${statusToastTone}`">
+                <div class="status-toast-message">{{ statusToastMessage }}</div>
+            </div>
+        </div>
         
         <div class="instructions" :class="{ collapsed: !showInstructions }">
             <div class="instructions-header" @click="showInstructions = !showInstructions">

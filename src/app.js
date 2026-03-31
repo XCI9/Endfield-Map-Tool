@@ -8,6 +8,155 @@ const { createApp } = PetiteVue;
 
 let openCvReadyPromise = null;
 
+const STATUS_TOAST_DURATION_MS = Object.freeze({
+    success: 3000,
+    info: 3000,
+    warn: 4000,
+    error: 5000,
+});
+
+function getLoadingStatusHintsByLocale() {
+    const localeHints = I18N.getStatusToastLoadingKeywords?.();
+    if (Array.isArray(localeHints)) {
+        return localeHints
+            .map((hint) => String(hint || '').toLowerCase().trim())
+            .filter((hint) => hint.length > 0);
+    }
+    return [];
+}
+
+function classifyStatusTone(message, loadingHints) {
+    const text = String(message || '').trim();
+    if (!text) return 'info';
+    if (text.startsWith('✅')) return 'success';
+    if (text.startsWith('❌')) return 'error';
+    if (text.startsWith('⚠️') || text.startsWith('⚠')) return 'warn';
+    if (text.startsWith('⏳') || text.startsWith('📦') || text.startsWith('✂️') || text.startsWith('💾')) return 'loading';
+    const lower = text.toLowerCase();
+    if (loadingHints.some((hint) => lower.includes(hint))) return 'loading';
+    return 'info';
+}
+
+function setupStatusToastInterceptors(appState) {
+    let statusTextValue = appState.statusText;
+    let isProcessingValue = appState.isProcessing;
+    let isLoadingBaseMapValue = appState.isLoadingBaseMap;
+    let isExportingValue = appState.isExporting;
+
+    let activeTimer = null;
+    let sequence = 0;
+
+    const clearTimer = () => {
+        if (activeTimer) {
+            clearTimeout(activeTimer);
+            activeTimer = null;
+        }
+    };
+
+    const hideToast = () => {
+        clearTimer();
+        appState.statusToastVisible = false;
+        appState.statusToastMessage = '';
+        appState.statusToastTone = 'info';
+    };
+
+    const resolveDurationMs = (tone) => {
+        return STATUS_TOAST_DURATION_MS[tone] || STATUS_TOAST_DURATION_MS.info;
+    };
+
+    const renderToastFromStatus = (message) => {
+        const text = String(message || '').trim();
+        if (!text) {
+            hideToast();
+            return;
+        }
+
+        clearTimer();
+        sequence += 1;
+        const currentSequence = sequence;
+
+        const loadingHints = getLoadingStatusHintsByLocale();
+        const tone = classifyStatusTone(text, loadingHints);
+        const isLoading = tone === 'loading';
+        const hasActiveLoadingFlow = isProcessingValue || isLoadingBaseMapValue || isExportingValue;
+        const keepUntilFlowCompleted = isLoading && hasActiveLoadingFlow;
+        const durationMs = keepUntilFlowCompleted
+            ? 0
+            : resolveDurationMs(isLoading ? 'info' : tone);
+
+        appState.statusToastVisible = true;
+        appState.statusToastMessage = text;
+        appState.statusToastTone = tone;
+
+        if (durationMs > 0) {
+            activeTimer = setTimeout(() => {
+                if (currentSequence !== sequence) return;
+                hideToast();
+            }, durationMs);
+        }
+    };
+
+    const maybeHideFinishedLoadingToast = () => {
+        if (!appState.statusToastVisible || appState.statusToastTone !== 'loading') return;
+        if (isProcessingValue || isLoadingBaseMapValue || isExportingValue) return;
+        hideToast();
+    };
+
+    Object.defineProperty(appState, 'statusText', {
+        get() {
+            return statusTextValue;
+        },
+        set(nextValue) {
+            statusTextValue = nextValue;
+            renderToastFromStatus(nextValue);
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    Object.defineProperty(appState, 'isProcessing', {
+        get() {
+            return isProcessingValue;
+        },
+        set(nextValue) {
+            isProcessingValue = !!nextValue;
+            maybeHideFinishedLoadingToast();
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    Object.defineProperty(appState, 'isLoadingBaseMap', {
+        get() {
+            return isLoadingBaseMapValue;
+        },
+        set(nextValue) {
+            isLoadingBaseMapValue = !!nextValue;
+            maybeHideFinishedLoadingToast();
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    Object.defineProperty(appState, 'isExporting', {
+        get() {
+            return isExportingValue;
+        },
+        set(nextValue) {
+            isExportingValue = !!nextValue;
+            maybeHideFinishedLoadingToast();
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    appState._disposeStatusToastInterceptors = () => {
+        clearTimer();
+    };
+
+    renderToastFromStatus(statusTextValue);
+}
+
 function ensureOpenCvReady(timeoutMs = 20000) {
     if (openCvReadyPromise) return openCvReadyPromise;
 
@@ -61,11 +210,14 @@ function ensureOpenCvReady(timeoutMs = 20000) {
 }
 
 function App() {
-    return {
+    const appState = {
         // ── Reactive UI state ──
         currentLanguage: I18N.getLanguage(),
         supportedLanguages: I18N.getSupportedLanguages(),
         statusText: UIText.STATUS.INIT,
+        statusToastVisible: false,
+        statusToastMessage: '',
+        statusToastTone: 'info',
         cropStatus: UIText.CROP.DRAG_TO_SELECT,
         cropCancelButtonText: UIText.CROP.CANCEL_UPLOAD,
         cropConfirmButtonText: UIText.CROP.CONFIRM_UPLOAD,
@@ -110,6 +262,9 @@ function App() {
         canUndo: false,
         isOpenCvInitialized: false,
         _i18nUnsubscribe: null,
+        _statusToastOffsetObserver: null,
+        _statusToastResizeHandler: null,
+        _statusToastInterceptorsReady: false,
 
         // ── Lifecycle ──
         async onOpenCvReady() {
@@ -122,12 +277,17 @@ function App() {
 
         mounted() {
             window.__appState = this;
+            if (!this._statusToastInterceptorsReady) {
+                setupStatusToastInterceptors(this);
+                this._statusToastInterceptorsReady = true;
+            }
             this.applyHeadTranslations();
             this._i18nUnsubscribe = I18N.onChange(() => {
                 this.currentLanguage = I18N.getLanguage();
                 this.applyHeadTranslations();
             });
             this.init();
+            this.initStatusToastLayout();
             this.loadChangelog();
             if (window.__opencvPending) {
                 this.onOpenCvReady().catch((error) => {
@@ -135,6 +295,37 @@ function App() {
                     this.statusText = UIText.STATUS.OPENCV_INIT_FAILED;
                 });
             }
+        },
+
+        initStatusToastLayout() {
+            this.updateStatusToastOffset();
+
+            const instructionsEl = document.querySelector('.instructions');
+            if (window.ResizeObserver && instructionsEl) {
+                this._statusToastOffsetObserver?.disconnect?.();
+                this._statusToastOffsetObserver = new ResizeObserver(() => {
+                    this.updateStatusToastOffset();
+                });
+                this._statusToastOffsetObserver.observe(instructionsEl);
+            }
+
+            if (!this._statusToastResizeHandler) {
+                this._statusToastResizeHandler = () => this.updateStatusToastOffset();
+                window.addEventListener('resize', this._statusToastResizeHandler);
+            }
+        },
+
+        updateStatusToastOffset() {
+            const instructionsEl = document.querySelector('.instructions');
+            if (!instructionsEl) {
+                document.documentElement.style.setProperty('--status-toast-avoid-bottom', '0px');
+                return;
+            }
+
+            const rect = instructionsEl.getBoundingClientRect();
+            const panelHeight = Math.max(0, Math.ceil(rect.height));
+            const avoidBottom = panelHeight > 0 ? panelHeight + 12 : 0;
+            document.documentElement.style.setProperty('--status-toast-avoid-bottom', `${avoidBottom}px`);
         },
 
         async loadChangelog() {
@@ -483,6 +674,8 @@ function App() {
         resetView()                 { CanvasManager.resetView(this.showOriginalBase); },
         renderView()                { CanvasManager.renderView(this.showOriginalBase); },
     };
+
+    return appState;
 }
 
 // ── Bootstrap ──
