@@ -836,7 +836,7 @@ body {
     }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 300px) {
     .top-right-actions {
         top: 12px;
         right: 12px;
