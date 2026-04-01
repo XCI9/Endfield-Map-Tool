@@ -5,25 +5,100 @@
 (function initI18N(global) {
     const LANGUAGE_STORAGE_KEY = 'endfield.lang';
     const LOCALES = global.END_FIELD_LOCALES || {};
+    const DEFAULT_LANGUAGE = 'zh-TW';
+    const LANGUAGE_LABELS = {
+        'zh-TW': '繁體中文',
+        'zh-CN': '简体中文',
+        en: 'English',
+    };
+    const SUPPORTED_LANGUAGES = (() => {
+        const localeKeys = Object.keys(LOCALES || {});
+        const normalized = localeKeys
+            .map((lang) => normalizeLanguage(lang))
+            .filter((lang, index, list) => list.indexOf(lang) === index);
+        if (!normalized.includes(DEFAULT_LANGUAGE)) normalized.unshift(DEFAULT_LANGUAGE);
+        return normalized;
+    })();
+    const SUPPORTED_LANGUAGE_SET = new Set(SUPPORTED_LANGUAGES);
 
-    function normalizeLanguage(lang) {
-        if (!lang) return 'zh-TW';
+    function detectLanguageToken(lang) {
+        if (!lang) return null;
         const normalized = String(lang).trim();
         const lower = normalized.toLowerCase();
         if (lower.startsWith('zh-cn') || lower.includes('hans')) return 'zh-CN';
-        if (lower.startsWith('zh')) return 'zh-TW';
-        if (lower.startsWith('en')) return 'en';
-        return 'zh-TW';
+        if (lower === 'zh' || lower === 'zh-tw' || lower.startsWith('zh-tw-') || lower === 'zh-hant' || lower.startsWith('zh-hant-')) return 'zh-TW';
+        if (lower === 'en' || lower.startsWith('en-')) return 'en';
+        return null;
+    }
+
+    function normalizeLanguage(lang) {
+        return detectLanguageToken(lang) || DEFAULT_LANGUAGE;
+    }
+
+    function toSupportedLanguage(lang) {
+        const normalized = detectLanguageToken(lang);
+        if (!normalized) return null;
+        return SUPPORTED_LANGUAGE_SET.has(normalized) ? normalized : null;
+    }
+
+    function splitPathSegments(pathname) {
+        return String(pathname || '/')
+            .split('/')
+            .map((segment) => segment.trim())
+            .filter((segment) => segment.length > 0);
+    }
+
+    function getPathContext(pathname) {
+        const segments = splitPathSegments(pathname);
+        if (segments[segments.length - 1]?.toLowerCase() === 'index.html') {
+            segments.pop();
+        }
+
+        let language = DEFAULT_LANGUAGE;
+        let languageSegmentIndex = -1;
+        for (let index = 0; index < segments.length; index += 1) {
+            const candidate = toSupportedLanguage(segments[index]);
+            if (candidate) {
+                language = candidate;
+                languageSegmentIndex = index;
+                break;
+            }
+        }
+
+        if (languageSegmentIndex >= 0) {
+            segments.splice(languageSegmentIndex, 1);
+        }
+
+        return {
+            language,
+            hasLanguageSegment: languageSegmentIndex >= 0,
+            baseSegments: segments,
+        };
+    }
+
+    function getLanguagePath(language, pathname) {
+        const targetLanguage = toSupportedLanguage(language) || DEFAULT_LANGUAGE;
+        const context = getPathContext(pathname ?? global.location?.pathname ?? '/');
+        const segments = context.baseSegments.slice();
+
+        if (targetLanguage !== DEFAULT_LANGUAGE) {
+            segments.push(targetLanguage);
+        }
+
+        if (segments.length === 0) return '/';
+        return `/${segments.join('/')}/`;
+    }
+
+    function getLanguageUrl(language, pathname) {
+        const path = getLanguagePath(language, pathname);
+        const origin = global.location?.origin || '';
+        return `${origin}${path}`;
     }
 
     function detectInitialLanguage() {
-        try {
-            const stored = global.localStorage?.getItem(LANGUAGE_STORAGE_KEY);
-            if (stored) return normalizeLanguage(stored);
-        } catch (_error) {
-            // Ignore storage access errors.
-        }
-        return normalizeLanguage(global.navigator?.language || 'zh-TW');
+        const fromPath = getPathContext(global.location?.pathname || '/');
+        if (fromPath.hasLanguageSegment) return fromPath.language;
+        return DEFAULT_LANGUAGE;
     }
 
     let currentLanguage = detectInitialLanguage();
@@ -115,10 +190,17 @@
     global.I18N = {
         getLanguage: () => currentLanguage,
         setLanguage,
+        getLanguagePath,
+        getLanguageUrl,
+        getDefaultLanguage: () => DEFAULT_LANGUAGE,
+        getLanguageLabel: (language) => {
+            const normalized = toSupportedLanguage(language) || DEFAULT_LANGUAGE;
+            return LANGUAGE_LABELS[normalized] || normalized;
+        },
         t,
         getStatusToastLoadingKeywords,
         getMapName: (mapKey) => resolveMapName(mapKey),
-        getSupportedLanguages: () => ['zh-TW', 'zh-CN', 'en'],
+        getSupportedLanguages: () => SUPPORTED_LANGUAGES.slice(),
         onChange: (listener) => {
             listeners.push(listener);
             return () => {

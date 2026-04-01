@@ -290,6 +290,14 @@ function App() {
         _statusToastResizeHandler: null,
         _statusToastInterceptorsReady: false,
 
+        getLanguagePath(lang) {
+            return I18N.getLanguagePath(lang);
+        },
+
+        getLanguageLabel(lang) {
+            return I18N.getLanguageLabel(lang);
+        },
+
         // ── Lifecycle ──
         async onOpenCvReady() {
             if (this.isOpenCvInitialized) return;
@@ -547,6 +555,46 @@ function App() {
             setMeta('meta[property="og:description"]', this.t('head.ogDescription'));
             setMeta('meta[name="twitter:title"]', this.t('head.twitterTitle'));
             setMeta('meta[name="twitter:description"]', this.t('head.twitterDescription'));
+
+            const canonicalUrl = I18N.getLanguageUrl(this.currentLanguage);
+            const defaultLanguage = I18N.getDefaultLanguage();
+
+            setMeta('meta[property="og:url"]', canonicalUrl);
+
+            const upsertHeadLink = (selector, attrs) => {
+                let element = document.head.querySelector(selector);
+                if (!element) {
+                    element = document.createElement('link');
+                    document.head.appendChild(element);
+                }
+                Object.entries(attrs).forEach(([key, value]) => {
+                    element.setAttribute(key, value);
+                });
+            };
+
+            upsertHeadLink('link[rel="canonical"]', {
+                rel: 'canonical',
+                href: canonicalUrl,
+            });
+
+            const existingAlternates = document.head.querySelectorAll('link[data-hreflang-generated="true"]');
+            existingAlternates.forEach((element) => element.remove());
+
+            this.supportedLanguages.forEach((lang) => {
+                upsertHeadLink(`link[rel="alternate"][hreflang="${lang}"]`, {
+                    rel: 'alternate',
+                    hreflang: lang,
+                    href: I18N.getLanguageUrl(lang),
+                    'data-hreflang-generated': 'true',
+                });
+            });
+
+            upsertHeadLink('link[rel="alternate"][hreflang="x-default"]', {
+                rel: 'alternate',
+                hreflang: 'x-default',
+                href: I18N.getLanguageUrl(defaultLanguage),
+                'data-hreflang-generated': 'true',
+            });
         },
 
         refreshLocalizedTransientText() {
@@ -597,6 +645,13 @@ function App() {
         },
 
         changeLanguage(lang) {
+            const targetPath = I18N.getLanguagePath(lang);
+            if (window.location.pathname !== targetPath) {
+                I18N.setLanguage(lang);
+                window.location.assign(targetPath);
+                return;
+            }
+
             I18N.setLanguage(lang);
             this.currentLanguage = I18N.getLanguage();
             this.applyHeadTranslations();

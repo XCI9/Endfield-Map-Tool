@@ -1,34 +1,34 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <title>終末地地圖合併工具 - Endfield Map Stitcher</title>
+    <base href="../">
+    <title>终末地地图合并工具 - Endfield Map Stitcher</title>
 
     <!-- google verification-->
     <meta name="google-site-verification" content="pzXaEEMgvd4nNJGC2vhPdr1bRz90uGfRG6sakC1ey08" />
     
     <!-- Basic Metadata -->
-    <meta name="description" content="全自動網頁工具將《明日方舟：終末地》的多張地圖截圖智慧拼接成完整大地圖。">
-    <meta name="keywords" content="明日方舟：終末地, Endfield, Arknights: Endfield, 地圖合併, 地圖拼接, 地圖截圖, 地圖工具, Map Stitcher, Map Tool, OpenCV, 攻略工具, 截圖辨識">
+    <meta name="description" content="全自动网页工具将《明日方舟：终末地》的多张地图截图智能拼接成完整大地图。">
+    <meta name="keywords" content="明日方舟：终末地, Endfield, Arknights: Endfield, 地图合并, 地图拼接, 地图截图, 地图工具, Map Stitcher, Map Tool, OpenCV, 攻略工具, 截图识别">
     <meta name="author" content="XCI9">
     <meta name="theme-color" content="#121212">
 
     <!-- Open Graph / Facebook / Discord -->
     <meta property="og:type" content="website">
-    <meta property="og:title" content="終末地地圖合併工具 - Endfield Map Stitcher">
-    <meta property="og:description" content="全自動網頁工具將《明日方舟：終末地》的多張地圖截圖智慧拼接成完整大地圖。">
-    <meta property="og:url" content="https://xci9.github.io/Endfield-Map-Tool/">
+    <meta property="og:title" content="终末地地图合并工具 - Endfield Map Stitcher">
+    <meta property="og:description" content="全自动网页工具将《明日方舟：终末地》的多张地图截图智能拼接成完整大地图。">
+    <meta property="og:url" content="https://xci9.github.io/Endfield-Map-Tool/zh-CN/">
     <meta property="og:image" content="https://xci9.github.io/Endfield-Map-Tool/assets/map02.webp">
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="終末地地圖合併工具">
-    <meta name="twitter:description" content="全自動網頁工具將《明日方舟：終末地》的多張地圖截圖智慧拼接成完整大地圖。">
+    <meta name="twitter:title" content="终末地地图合并工具">
+    <meta name="twitter:description" content="全自动网页工具将《明日方舟：终末地》的多张地图截图智能拼接成完整大地图。">
     <meta name="twitter:image" content="https://xci9.github.io/Endfield-Map-Tool/assets/map02.webp">
 
-    <link rel="canonical" href="https://xci9.github.io/Endfield-Map-Tool/">
+    <link rel="canonical" href="https://xci9.github.io/Endfield-Map-Tool/zh-CN/">
         <link rel="alternate" hreflang="zh-TW" href="https://xci9.github.io/Endfield-Map-Tool/">
     <link rel="alternate" hreflang="en" href="https://xci9.github.io/Endfield-Map-Tool/en/">
     <link rel="alternate" hreflang="zh-CN" href="https://xci9.github.io/Endfield-Map-Tool/zh-CN/">
@@ -78,9 +78,9 @@
                     <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm6.92 6h-3.07a15.35 15.35 0 0 0-1.38-3.57A8.04 8.04 0 0 1 18.92 8zM12 4.04c.89 1.01 1.71 2.38 2.24 3.96H9.76C10.29 6.42 11.11 5.05 12 4.04zM4.3 14a7.9 7.9 0 0 1 0-4h3.11a16.5 16.5 0 0 0 0 4zm.78 2h3.07a15.35 15.35 0 0 0 1.38 3.57A8.04 8.04 0 0 1 5.08 16zM8.15 8H5.08a8.04 8.04 0 0 1 4.45-3.57A15.35 15.35 0 0 0 8.15 8zM12 19.96c-.89-1.01-1.71-2.38-2.24-3.96h4.48c-.53 1.58-1.35 2.95-2.24 3.96zM14.65 14h-5.3a14.45 14.45 0 0 1 0-4h5.3a14.45 14.45 0 0 1 0 4zm-.18 5.57A15.35 15.35 0 0 0 15.85 16h3.07a8.04 8.04 0 0 1-4.45 3.57zM16.59 14a16.5 16.5 0 0 0 0-4h3.11a7.9 7.9 0 0 1 0 4z" />
                 </svg>
                 <nav class="language-switcher" aria-label="Language links">
-                                        <a class="language-link" href="/" :class="{ active: currentLanguage === 'zh-TW' }" :aria-current="currentLanguage === 'zh-TW' ? 'page' : null">繁體中文</a>
+                                        <a class="language-link" href="/" :class="{ active: currentLanguage === 'zh-TW' }" :aria-current="currentLanguage === 'zh-TW' ? 'page' : null">繁体中文</a>
                     <a class="language-link" href="/en/" :class="{ active: currentLanguage === 'en' }" :aria-current="currentLanguage === 'en' ? 'page' : null">English</a>
-                    <a class="language-link" href="/zh-CN/" :class="{ active: currentLanguage === 'zh-CN' }" :aria-current="currentLanguage === 'zh-CN' ? 'page' : null">簡體中文</a>
+                    <a class="language-link" href="/zh-CN/" :class="{ active: currentLanguage === 'zh-CN' }" :aria-current="currentLanguage === 'zh-CN' ? 'page' : null">简体中文</a>
                 </nav>
             </div>
         </div>

@@ -43,6 +43,38 @@ When you want to publish a new version note:
    - `- change item 2`
 3. Refresh the page. No HTML change is required.
 
+## Multilingual SEO Build
+
+This project now uses language-specific URLs for crawler-friendly indexing:
+
+- `https://xci9.github.io/Endfield-Map-Tool/` (default `zh-TW`)
+- `https://xci9.github.io/Endfield-Map-Tool/zh-CN/`
+- `https://xci9.github.io/Endfield-Map-Tool/en/`
+
+Generate localized pages and sitemap before publishing:
+
+```bash
+node scripts/generate-localized-pages.mjs
+```
+
+If Node is installed in the project conda environment:
+
+```bash
+conda run -p .conda node scripts/generate-localized-pages.mjs
+```
+
+### Add a New Language
+
+1. Add locale content in `src/ui-locales.js` using a new language key.
+2. Ensure `text.head` and `text.language` are provided for the new language.
+3. Run the generation script to create `<lang>/index.html` and update root `index.html` + `sitemap.xml`.
+4. Commit generated files and submit updated sitemap in Google Search Console.
+
+Page generation now uses:
+
+- `templates/page.template.html` as the shared HTML template
+- `src/ui-locales.js` as the single source of language metadata and labels
+
 ## License
 
 This project is licensed under the [GNU General Public License v2.0](LICENSE).

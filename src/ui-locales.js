@@ -27,6 +27,7 @@
                 },
                 language: {
                     zhTW: '繁體中文',
+                    zhCN: '簡體中文',
                     en: 'English',
                 },
                 page: {
