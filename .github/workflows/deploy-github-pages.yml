@@ -1,0 +1,51 @@
+name: Build and Deploy Multilingual Site
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build multilingual pages
+        run: node scripts/generate-localized-pages.mjs
+
+      - name: Prepare deploy folder
+        run: |
+          rm -rf dist
+          mkdir -p dist
+
+          cp -R assets dist/assets
+          cp -R src dist/src
+          cp -R en dist/en
+          cp -R zh-CN dist/zh-CN
+
+          cp index.html dist/index.html
+          cp sitemap.xml dist/sitemap.xml
+          cp CHANGELOG.md dist/CHANGELOG.md
+
+          if [ -f CNAME ]; then cp CNAME dist/CNAME; fi
+          touch dist/.nojekyll
+
+      - name: Deploy to github-pages branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: github-pages
+          folder: dist
+          clean: true
