@@ -9,6 +9,11 @@ const localeSourcePath = path.join(projectRoot, 'src', 'ui-locales.js');
 const siteOrigin = 'https://xci9.github.io';
 const repoBase = '/Endfield-Map-Tool';
 const defaultLanguage = 'zh-TW';
+const FALLBACK_LANGUAGE_LABELS = {
+  'zh-TW': '繁體中文',
+  'zh-CN': '简体中文',
+  en: 'English',
+};
 
 const templateHtml = fs.readFileSync(templatePath, 'utf8').replace(/^\uFEFF/, '');
 
@@ -55,11 +60,10 @@ function getHeadText(locales, languageCode) {
   };
 }
 
-function getLanguageDisplayName(locales, currentLanguageCode, targetLanguageCode) {
-  const currentLangText = locales[currentLanguageCode]?.text?.language || {};
+function getLanguageDisplayName(locales, targetLanguageCode) {
   const targetLangText = locales[targetLanguageCode]?.text?.language || {};
   const targetKey = toLanguageLabelKey(targetLanguageCode);
-  return currentLangText[targetKey] || targetLangText[targetKey] || targetLanguageCode;
+  return targetLangText[targetKey] || FALLBACK_LANGUAGE_LABELS[targetLanguageCode] || targetLanguageCode;
 }
 
 function buildAlternateLinks(languageCodes) {
@@ -71,11 +75,11 @@ function buildAlternateLinks(languageCodes) {
   return lines.join('\n');
 }
 
-function buildLanguageLinkItems(locales, languageCodes, pageLanguageCode) {
+function buildLanguageOptionItems(locales, languageCodes, pageLanguageCode) {
   return languageCodes.map((languageCode) => {
-    const href = `${getLanguagePath(languageCode)}`;
-    const label = getLanguageDisplayName(locales, pageLanguageCode, languageCode);
-    return `                    <a class="language-link" href="${href}" :class="{ active: currentLanguage === '${languageCode}' }" :aria-current="currentLanguage === '${languageCode}' ? 'page' : null">${label}</a>`;
+    const label = getLanguageDisplayName(locales, languageCode);
+    const selected = languageCode === pageLanguageCode ? ' selected' : '';
+    return `                    <option value="${languageCode}"${selected}>${label}</option>`;
   }).join('\n');
 }
 
@@ -94,7 +98,7 @@ function renderPage(locales, languageCodes, pageLanguageCode) {
     '{{TWITTER_DESCRIPTION}}': head.twitterDescription,
     '{{CANONICAL_URL}}': canonicalUrl,
     '{{ALTERNATE_LINKS}}': buildAlternateLinks(languageCodes),
-    '{{LANGUAGE_LINK_ITEMS}}': buildLanguageLinkItems(locales, languageCodes, pageLanguageCode),
+    '{{LANGUAGE_OPTION_ITEMS}}': buildLanguageOptionItems(locales, languageCodes, pageLanguageCode),
   };
 
   let output = templateHtml;

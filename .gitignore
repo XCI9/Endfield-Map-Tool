@@ -2,3 +2,5 @@
 gitignore/
 testcase/
 __pycache__/
+index.html
+sitemap.xml
