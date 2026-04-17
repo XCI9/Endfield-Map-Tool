@@ -44,7 +44,7 @@ const MapLoader = {
 
     async loadBaseMapFromAsset(appState, mapKey) {
         const mapInfo = MAPS[mapKey] || MAPS.map02;
-        appState.statusText = UIText.STATUS.BASE_MAP_LOADING(mapInfo.name);
+        appState.statusText = UIText.STATUS.BASE_MAP_LOADING(mapKey);
         appState.isLoadingBaseMap = true;
 
         if (outputCtx && outputCanvas) {
@@ -62,7 +62,7 @@ const MapLoader = {
             await loadPromise;
             if (img.decode) await img.decode().catch(() => undefined);
         } catch (error) {
-            appState.statusText = UIText.STATUS.BASE_MAP_LOAD_FAILED(mapInfo.name, mapInfo.file);
+            appState.statusText = UIText.STATUS.BASE_MAP_LOAD_FAILED(mapKey, mapInfo.file);
             appState.isLoadingBaseMap = false;
             return;
         }
@@ -128,7 +128,7 @@ const MapLoader = {
                 }
             }
 
-            appState.statusText = UIText.STATUS.BASE_MAP_LOADED(mapInfo.name);
+            appState.statusText = UIText.STATUS.BASE_MAP_LOADED(mapKey);
 
             // Yield again before clearing the flag. Any click events that were queued
             // during the synchronous OpenCV work above will fire HERE — while

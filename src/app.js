@@ -8,6 +8,178 @@ const { createApp } = PetiteVue;
 
 let openCvReadyPromise = null;
 
+const STATUS_TOAST_DURATION_MS = Object.freeze({
+    success: 3000,
+    info: 3000,
+    warn: 4000,
+    error: 5000,
+});
+
+const STATUS_TOAST_FADE_OUT_MS = 500;
+
+function getLoadingStatusHintsByLocale() {
+    const localeHints = I18N.getStatusToastLoadingKeywords?.();
+    if (Array.isArray(localeHints)) {
+        return localeHints
+            .map((hint) => String(hint || '').toLowerCase().trim())
+            .filter((hint) => hint.length > 0);
+    }
+    return [];
+}
+
+function classifyStatusTone(message, loadingHints) {
+    const text = String(message || '').trim();
+    if (!text) return 'info';
+    if (text.startsWith('✅')) return 'success';
+    if (text.startsWith('❌')) return 'error';
+    if (text.startsWith('⚠️') || text.startsWith('⚠')) return 'warn';
+    if (text.startsWith('⏳') || text.startsWith('📦') || text.startsWith('✂️') || text.startsWith('💾')) return 'loading';
+    const lower = text.toLowerCase();
+    if (loadingHints.some((hint) => lower.includes(hint))) return 'loading';
+    return 'info';
+}
+
+function setupStatusToastInterceptors(appState) {
+    let statusTextValue = appState.statusText;
+    let isProcessingValue = appState.isProcessing;
+    let isLoadingBaseMapValue = appState.isLoadingBaseMap;
+    let isExportingValue = appState.isExporting;
+
+    let activeTimer = null;
+    let fadeOutTimer = null;
+    let sequence = 0;
+
+    const clearTimer = () => {
+        if (activeTimer) {
+            clearTimeout(activeTimer);
+            activeTimer = null;
+        }
+    };
+
+    const clearFadeOutTimer = () => {
+        if (fadeOutTimer) {
+            clearTimeout(fadeOutTimer);
+            fadeOutTimer = null;
+        }
+    };
+
+    const cancelFadeOut = () => {
+        clearFadeOutTimer();
+        appState.statusToastFading = false;
+    };
+
+    const hideToast = () => {
+        clearTimer();
+        if (!appState.statusToastVisible) return;
+        appState.statusToastFading = true;
+        clearFadeOutTimer();
+        fadeOutTimer = setTimeout(() => {
+            appState.statusToastVisible = false;
+            appState.statusToastMessage = '';
+            appState.statusToastTone = 'info';
+            appState.statusToastFading = false;
+        }, STATUS_TOAST_FADE_OUT_MS);
+    };
+
+    const resolveDurationMs = (tone) => {
+        return STATUS_TOAST_DURATION_MS[tone] || STATUS_TOAST_DURATION_MS.info;
+    };
+
+    const renderToastFromStatus = (message) => {
+        const text = String(message || '').trim();
+        if (!text) {
+            hideToast();
+            return;
+        }
+
+        clearTimer();
+        cancelFadeOut();
+        sequence += 1;
+        const currentSequence = sequence;
+
+        const loadingHints = getLoadingStatusHintsByLocale();
+        const tone = classifyStatusTone(text, loadingHints);
+        const isLoading = tone === 'loading';
+        const hasActiveLoadingFlow = isProcessingValue || isLoadingBaseMapValue || isExportingValue;
+        const keepUntilFlowCompleted = isLoading && hasActiveLoadingFlow;
+        const durationMs = keepUntilFlowCompleted
+            ? 0
+            : resolveDurationMs(isLoading ? 'info' : tone);
+
+        appState.statusToastVisible = true;
+        appState.statusToastMessage = text;
+        appState.statusToastTone = tone;
+
+        if (durationMs > 0) {
+            activeTimer = setTimeout(() => {
+                if (currentSequence !== sequence) return;
+                hideToast();
+            }, durationMs);
+        }
+    };
+
+    const maybeHideFinishedLoadingToast = () => {
+        if (!appState.statusToastVisible || appState.statusToastTone !== 'loading') return;
+        if (isProcessingValue || isLoadingBaseMapValue || isExportingValue) return;
+        hideToast();
+    };
+
+    Object.defineProperty(appState, 'statusText', {
+        get() {
+            return statusTextValue;
+        },
+        set(nextValue) {
+            statusTextValue = nextValue;
+            renderToastFromStatus(nextValue);
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    Object.defineProperty(appState, 'isProcessing', {
+        get() {
+            return isProcessingValue;
+        },
+        set(nextValue) {
+            isProcessingValue = !!nextValue;
+            maybeHideFinishedLoadingToast();
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    Object.defineProperty(appState, 'isLoadingBaseMap', {
+        get() {
+            return isLoadingBaseMapValue;
+        },
+        set(nextValue) {
+            isLoadingBaseMapValue = !!nextValue;
+            maybeHideFinishedLoadingToast();
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    Object.defineProperty(appState, 'isExporting', {
+        get() {
+            return isExportingValue;
+        },
+        set(nextValue) {
+            isExportingValue = !!nextValue;
+            maybeHideFinishedLoadingToast();
+        },
+        configurable: true,
+        enumerable: true,
+    });
+
+    appState._disposeStatusToastInterceptors = () => {
+        clearTimer();
+        clearFadeOutTimer();
+    };
+
+    renderToastFromStatus(statusTextValue);
+}
+
 function ensureOpenCvReady(timeoutMs = 20000) {
     if (openCvReadyPromise) return openCvReadyPromise;
 
@@ -61,9 +233,15 @@ function ensureOpenCvReady(timeoutMs = 20000) {
 }
 
 function App() {
-    return {
+    const appState = {
         // ── Reactive UI state ──
+        currentLanguage: I18N.getLanguage(),
+        supportedLanguages: I18N.getSupportedLanguages(),
         statusText: UIText.STATUS.INIT,
+        statusToastVisible: false,
+        statusToastFading: false,
+        statusToastMessage: '',
+        statusToastTone: 'info',
         cropStatus: UIText.CROP.DRAG_TO_SELECT,
         cropCancelButtonText: UIText.CROP.CANCEL_UPLOAD,
         cropConfirmButtonText: UIText.CROP.CONFIRM_UPLOAD,
@@ -107,6 +285,18 @@ function App() {
         history: [],
         canUndo: false,
         isOpenCvInitialized: false,
+        _i18nUnsubscribe: null,
+        _statusToastOffsetObserver: null,
+        _statusToastResizeHandler: null,
+        _statusToastInterceptorsReady: false,
+
+        getLanguagePath(lang) {
+            return I18N.getLanguagePath(lang);
+        },
+
+        getLanguageLabel(lang) {
+            return I18N.getLanguageLabel(lang);
+        },
 
         // ── Lifecycle ──
         async onOpenCvReady() {
@@ -119,7 +309,17 @@ function App() {
 
         mounted() {
             window.__appState = this;
+            if (!this._statusToastInterceptorsReady) {
+                setupStatusToastInterceptors(this);
+                this._statusToastInterceptorsReady = true;
+            }
+            this.applyHeadTranslations();
+            this._i18nUnsubscribe = I18N.onChange(() => {
+                this.currentLanguage = I18N.getLanguage();
+                this.applyHeadTranslations();
+            });
             this.init();
+            this.initStatusToastLayout();
             this.loadChangelog();
             if (window.__opencvPending) {
                 this.onOpenCvReady().catch((error) => {
@@ -127,6 +327,37 @@ function App() {
                     this.statusText = UIText.STATUS.OPENCV_INIT_FAILED;
                 });
             }
+        },
+
+        initStatusToastLayout() {
+            this.updateStatusToastOffset();
+
+            const instructionsEl = document.querySelector('.instructions');
+            if (window.ResizeObserver && instructionsEl) {
+                this._statusToastOffsetObserver?.disconnect?.();
+                this._statusToastOffsetObserver = new ResizeObserver(() => {
+                    this.updateStatusToastOffset();
+                });
+                this._statusToastOffsetObserver.observe(instructionsEl);
+            }
+
+            if (!this._statusToastResizeHandler) {
+                this._statusToastResizeHandler = () => this.updateStatusToastOffset();
+                window.addEventListener('resize', this._statusToastResizeHandler);
+            }
+        },
+
+        updateStatusToastOffset() {
+            const instructionsEl = document.querySelector('.instructions');
+            if (!instructionsEl) {
+                document.documentElement.style.setProperty('--status-toast-avoid-bottom', '0px');
+                return;
+            }
+
+            const rect = instructionsEl.getBoundingClientRect();
+            const panelHeight = Math.max(0, Math.ceil(rect.height));
+            const avoidBottom = panelHeight > 0 ? panelHeight + 12 : 0;
+            document.documentElement.style.setProperty('--status-toast-avoid-bottom', `${avoidBottom}px`);
         },
 
         async loadChangelog() {
@@ -296,6 +527,157 @@ function App() {
             window.addEventListener('resize', () => CropperHandler.renderCropEditCanvas(this));
         },
 
+        t(key) {
+            // Ensure template re-render tracks language state.
+            const _lang = this.currentLanguage;
+            const args = Array.prototype.slice.call(arguments, 1);
+            return I18N.t.apply(I18N, [key].concat(args));
+        },
+
+        getMapName(mapKey) {
+            // Ensure map labels update immediately after language switch.
+            const _lang = this.currentLanguage;
+            return I18N.getMapName(mapKey);
+        },
+
+        applyHeadTranslations() {
+            document.documentElement.lang = this.currentLanguage;
+            document.title = this.t('head.title');
+
+            const setMeta = (selector, value) => {
+                const element = document.querySelector(selector);
+                if (element) element.setAttribute('content', value);
+            };
+
+            setMeta('meta[name="description"]', this.t('head.description'));
+            setMeta('meta[name="keywords"]', this.t('head.keywords'));
+            setMeta('meta[property="og:title"]', this.t('head.ogTitle'));
+            setMeta('meta[property="og:description"]', this.t('head.ogDescription'));
+            setMeta('meta[name="twitter:title"]', this.t('head.twitterTitle'));
+            setMeta('meta[name="twitter:description"]', this.t('head.twitterDescription'));
+
+            const canonicalUrl = I18N.getLanguageUrl(this.currentLanguage);
+            const defaultLanguage = I18N.getDefaultLanguage();
+
+            setMeta('meta[property="og:url"]', canonicalUrl);
+
+            const upsertHeadLink = (selector, attrs) => {
+                let element = document.head.querySelector(selector);
+                if (!element) {
+                    element = document.createElement('link');
+                    document.head.appendChild(element);
+                }
+                Object.entries(attrs).forEach(([key, value]) => {
+                    element.setAttribute(key, value);
+                });
+            };
+
+            upsertHeadLink('link[rel="canonical"]', {
+                rel: 'canonical',
+                href: canonicalUrl,
+            });
+
+            const existingAlternates = document.head.querySelectorAll('link[data-hreflang-generated="true"]');
+            existingAlternates.forEach((element) => element.remove());
+
+            this.supportedLanguages.forEach((lang) => {
+                upsertHeadLink(`link[rel="alternate"][hreflang="${lang}"]`, {
+                    rel: 'alternate',
+                    hreflang: lang,
+                    href: I18N.getLanguageUrl(lang),
+                    'data-hreflang-generated': 'true',
+                });
+            });
+
+            upsertHeadLink('link[rel="alternate"][hreflang="x-default"]', {
+                rel: 'alternate',
+                hreflang: 'x-default',
+                href: I18N.getLanguageUrl(defaultLanguage),
+                'data-hreflang-generated': 'true',
+            });
+        },
+
+        refreshLocalizedTransientText() {
+            // Rebuild transient text from current runtime state so language
+            // switching reflects the in-progress flow instead of resetting.
+            if (this.isLoadingBaseMap) {
+                this.statusText = UIText.STATUS.BASE_MAP_LOADING(this.currentMapKey);
+            } else if (!this.isOpenCvInitialized) {
+                this.statusText = UIText.STATUS.OPENCV_INITIALIZING;
+            } else if (this.isExporting) {
+                if (this.exportProgress < 30) {
+                    this.statusText = UIText.STATUS.EXPORT_PREPARING;
+                } else if (this.exportProgress < 50) {
+                    this.statusText = UIText.STATUS.EXPORT_CROPPING;
+                } else {
+                    const formatName = this.exportFormat === 'image/webp' ? 'WebP' : 'PNG';
+                    this.statusText = UIText.STATUS.EXPORT_COMPRESSING(formatName);
+                }
+            } else if (this.isProcessing) {
+                this.statusText = UIText.STATUS.DETECTING_FEATURES;
+            } else if (this.hasOutput) {
+                this.statusText = UIText.STATUS.BASE_MAP_LOADED(this.currentMapKey);
+            } else {
+                this.statusText = UIText.STATUS.INIT;
+            }
+
+            this.confirmModalCancelText = UIText.MODAL.CANCEL;
+
+            if (!this.showConfirmModal) {
+                this.confirmModalTitle = UIText.MODAL.SWITCH_MAP_TITLE;
+                this.confirmModalMessage = UIText.MODAL.SWITCH_MAP_MESSAGE;
+                this.confirmModalConfirmText = UIText.MODAL.CONFIRM;
+            }
+
+            const isPreviewCrop = cropMode === 'preview';
+            this.cropCancelButtonText = isPreviewCrop ? UIText.CROP.CANCEL_CROP : UIText.CROP.CANCEL_UPLOAD;
+            this.cropConfirmButtonText = isPreviewCrop ? UIText.CROP.CONFIRM_CROP : UIText.CROP.CONFIRM_UPLOAD;
+
+            if (this.showCrop) {
+                this.cropStatus = this.cropEditMode
+                    ? UIText.CROP.ERASER_MODE
+                    : UIText.CROP.DRAG_TO_SELECT;
+            }
+
+            if (this.changelogLoadError) {
+                this.changelogLoadError = UIText.STATUS.CHANGELOG_LOAD_FAILED;
+            }
+        },
+
+        changeLanguage(lang) {
+            const targetPath = I18N.getLanguagePath(lang);
+            if (window.location.pathname !== targetPath) {
+                I18N.setLanguage(lang);
+                window.location.assign(targetPath);
+                return;
+            }
+
+            I18N.setLanguage(lang);
+            this.currentLanguage = I18N.getLanguage();
+            this.applyHeadTranslations();
+            this.refreshLocalizedTransientText();
+
+            const switchedMessage = UIText.STATUS.LANGUAGE_SWITCHED || UIText.STATUS.INIT;
+            if (this.currentLanguage !== 'zh-TW' && UIText.STATUS.AI_TRANSLATION_NOTE) {
+                this.statusText = `${switchedMessage} (${UIText.STATUS.AI_TRANSLATION_NOTE})`;
+            } else {
+                this.statusText = switchedMessage;
+            }
+
+            // Language change can alter toolbar size; reflow and sync canvas size.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    CanvasManager.resizeOutputCanvas(this.showOriginalBase);
+                    if (this.showPreviewModal) {
+                        ExportHandler.updatePreview(this);
+                    }
+                    if (this.showCrop && this.cropEditMode) {
+                        CropperHandler.renderCropEditCanvas(this);
+                    }
+                });
+            });
+        },
+
         // ── Map selection ──
         async selectMap(key)        { await MapLoader.selectMap(this, key); },
         openConfirmModal(title, message, confirmText = UIText.MODAL.CONFIRM, cancelText = UIText.MODAL.CANCEL) {
@@ -371,6 +753,8 @@ function App() {
         resetView()                 { CanvasManager.resetView(this.showOriginalBase); },
         renderView()                { CanvasManager.renderView(this.showOriginalBase); },
     };
+
+    return appState;
 }
 
 // ── Bootstrap ──

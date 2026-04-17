@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base href="../">
+    <title>Endfield Map Stitcher</title>
+
+    <!-- google verification-->
+    <meta name="google-site-verification" content="pzXaEEMgvd4nNJGC2vhPdr1bRz90uGfRG6sakC1ey08" />
+    
+    <!-- Basic Metadata -->
+    <meta name="description" content="A fully automated web tool that intelligently stitches multiple Arknights: Endfield map screenshots into one complete map.">
+    <meta name="keywords" content="Arknights Endfield, Endfield, map stitcher, map tool, OpenCV, screenshot matching">
+    <meta name="author" content="XCI9">
+    <meta name="theme-color" content="#121212">
+
+    <!-- Open Graph / Facebook / Discord -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Endfield Map Stitcher">
+    <meta property="og:description" content="A fully automated web tool that intelligently stitches multiple Arknights: Endfield map screenshots into one complete map.">
+    <meta property="og:url" content="https://xci9.github.io/Endfield-Map-Tool/en/">
+    <meta property="og:image" content="https://xci9.github.io/Endfield-Map-Tool/assets/map02.webp">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Endfield Map Stitcher">
+    <meta name="twitter:description" content="A fully automated web tool that intelligently stitches multiple Arknights: Endfield map screenshots into one complete map.">
+    <meta name="twitter:image" content="https://xci9.github.io/Endfield-Map-Tool/assets/map02.webp">
+
+    <link rel="canonical" href="https://xci9.github.io/Endfield-Map-Tool/en/">
+        <link rel="alternate" hreflang="zh-TW" href="https://xci9.github.io/Endfield-Map-Tool/">
+    <link rel="alternate" hreflang="en" href="https://xci9.github.io/Endfield-Map-Tool/en/">
+    <link rel="alternate" hreflang="zh-CN" href="https://xci9.github.io/Endfield-Map-Tool/zh-CN/">
+    <link rel="alternate" hreflang="x-default" href="https://xci9.github.io/Endfield-Map-Tool/">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+    <link rel="stylesheet" href="src/styles.css">
+    <script>
+        window.onOpenCvReady = function () {
+            if (window.__opencvReady) {
+                window.__opencvReady();
+            } else {
+                window.__opencvPending = true;
+            }
+        };
+    </script>
+    <script defer src="https://unpkg.com/petite-vue@0.4.1/dist/petite-vue.iife.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+    <script src="src/state.js"></script>
+    <script src="src/ui-locales.js"></script>
+    <script src="src/ui-text.js"></script>
+    <script src="src/fingerprint-loader.js"></script>
+    <script src="src/match-logic.js"></script>
+    <script src="src/canvas-manager.js"></script>
+    <script src="src/export-handler.js"></script>
+    <script src="src/map-loader.js"></script>
+    <script src="src/brightness-boundary-enhancer.js"></script>
+    <script src="src/cropper-handler.js"></script>
+    <script src="src/matcher.js"></script>
+    <script src="src/history.js"></script>
+    <script src="src/changelog-loader.js"></script>
+    <script defer src="src/app.js"></script>
+    <script async src="assets/vendor/opencv.js" onload="onOpenCvReady();"></script>
+</head>
+<body>
+    <div id="app" v-scope="App()" @vue:mounted="mounted()">
+        <div class="top-right-actions">
+            <a class="issue-report-link" href="https://github.com/XCI9/Endfield-Map-Tool/issues" target="_blank" rel="noopener" :aria-label="t('page.issueReport.label')" :title="t('page.issueReport.label')">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.39.6.11.82-.26.82-.58 0-.29-.01-1.04-.02-2.05-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.33-1.76-1.33-1.76-1.08-.74.08-.73.08-.73 1.2.08 1.83 1.23 1.83 1.23 1.06 1.82 2.8 1.3 3.49.99.11-.78.42-1.31.76-1.62-2.67-.31-5.47-1.33-5.47-5.93 0-1.31.47-2.39 1.24-3.24-.12-.3-.54-1.53.12-3.18 0 0 1.01-.32 3.3 1.24.96-.27 1.98-.4 3-.4s2.04.14 3 .4c2.29-1.56 3.3-1.24 3.3-1.24.66 1.65.24 2.88.12 3.18.77.85 1.24 1.93 1.24 3.24 0 4.61-2.81 5.62-5.49 5.92.43.37.82 1.1.82 2.22 0 1.6-.01 2.89-.01 3.29 0 .32.21.69.83.58A12.01 12.01 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                </svg>
+                <span>{{ t('page.issueReport.text') }}</span>
+            </a>
+
+            <div class="language-dropdown" aria-label="Language selector">
+                <svg class="globe" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm6.92 6h-3.07a15.35 15.35 0 0 0-1.38-3.57A8.04 8.04 0 0 1 18.92 8zM12 4.04c.89 1.01 1.71 2.38 2.24 3.96H9.76C10.29 6.42 11.11 5.05 12 4.04zM4.3 14a7.9 7.9 0 0 1 0-4h3.11a16.5 16.5 0 0 0 0 4zm.78 2h3.07a15.35 15.35 0 0 0 1.38 3.57A8.04 8.04 0 0 1 5.08 16zM8.15 8H5.08a8.04 8.04 0 0 1 4.45-3.57A15.35 15.35 0 0 0 8.15 8zM12 19.96c-.89-1.01-1.71-2.38-2.24-3.96h4.48c-.53 1.58-1.35 2.95-2.24 3.96zM14.65 14h-5.3a14.45 14.45 0 0 1 0-4h5.3a14.45 14.45 0 0 1 0 4zm-.18 5.57A15.35 15.35 0 0 0 15.85 16h3.07a8.04 8.04 0 0 1-4.45 3.57zM16.59 14a16.5 16.5 0 0 0 0-4h3.11a7.9 7.9 0 0 1 0 4z" />
+                </svg>
+                <label class="visually-hidden" for="languageSelect">Language</label>
+                <select id="languageSelect" class="language-select" :value="currentLanguage" @change="changeLanguage($event.target.value)" aria-label="Language links">
+                                        <option value="zh-TW">繁體中文</option>
+                    <option value="en" selected>English</option>
+                    <option value="zh-CN">简体中文</option>
+                </select>
+            </div>
+        </div>
+        <header class="toolbar">
+            <div class="toolbar-main">
+                <div class="toolbar-header">
+                    <h3>{{ t('page.toolbar.title') }} {{ appVersion }}</h3>
+                    <span class="toolbar-subtitle">{{ t('page.toolbar.subtitle') }}</span>
+                </div>
+                <div class="actions">
+                    <div class="map-switcher">
+                        <button :class="{ active: currentMapKey === 'map01' }" @click="selectMap('map01')" :disabled="isProcessing || isLoadingBaseMap">{{ getMapName('map01') }}</button>
+                        <button :class="{ active: currentMapKey === 'map02' }" @click="selectMap('map02')" :disabled="isProcessing || isLoadingBaseMap">{{ getMapName('map02') }}</button>
+                    </div>
+                    <label class="map-select">
+                        <input type="checkbox" v-model="showOriginalBase" @change="onOriginalToggle()" :disabled="isLoadingBaseMap">
+                        <span>{{ t('page.toolbar.showOriginalBase') }}</span>
+                    </label>
+                    <button class="primary" @click="openFilePicker" :disabled="isProcessing || isLoadingBaseMap">{{ t('page.toolbar.selectScreenshot') }}</button>
+                    <input ref="subFile" class="hidden" type="file" accept="image/*" @change="onSubFileChange">
+                    <button @click="undoLastAction" :disabled="!canUndo || isProcessing || isLoadingBaseMap" :title="t('page.toolbar.undoTitle')">{{ t('page.toolbar.undo') }}</button>
+                    <button @click="reopenLastImageForCrop" :disabled="!canUndo || isProcessing || isLoadingBaseMap" :title="t('page.toolbar.recropLastTitle')">{{ t('page.toolbar.recropLast') }}</button>
+                    <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap">{{ t('page.toolbar.downloadFullMap') }}</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="status-toast-layer" aria-live="polite" aria-atomic="true">
+            <div v-if="statusToastVisible" class="status-toast" :class="[`is-${statusToastTone}`, { 'is-fading': statusToastFading }]">
+                <div class="status-toast-message">{{ statusToastMessage }}</div>
+            </div>
+        </div>
+        
+        <div class="instructions" :class="{ collapsed: !showInstructions }">
+            <div class="instructions-header" @click="showInstructions = !showInstructions">
+                <span>{{ t('page.instructions.title') }}</span>
+                <span class="toggle-icon">{{ showInstructions ? '▼' : '◀' }}</span>
+            </div>
+            <div class="instructions-content" v-show="showInstructions">
+                <ol>
+                    <li>{{ t('page.instructions.step1') }}</li>
+                    <li>{{ t('page.instructions.step2') }}</li>
+                    <li>{{ t('page.instructions.step3') }}</li>
+                </ol>
+                
+                <div class="update-log" :class="{ collapsed: !showUpdateLog }">
+                    <div class="log-header" @click="showUpdateLog = !showUpdateLog">
+                        <h4>{{ t('page.instructions.changelogTitle') }}</h4>
+                        <span class="toggle-icon">{{ showUpdateLog ? '▼' : '◀' }}</span>
+                    </div>
+                    <div class="log-content" v-show="showUpdateLog">
+                        <p v-if="isChangelogLoading" class="log-loading">{{ t('page.instructions.changelogLoading') }}</p>
+                        <p v-else-if="changelogLoadError" class="log-error">{{ changelogLoadError }}</p>
+                        <ul v-else>
+                            <li v-for="entry in changelogEntries" :key="entry.version">
+                                <span class="version">{{ entry.version }}</span>
+                                <ul>
+                                    <li v-for="(change, idx) in entry.changes" :key="`${entry.version}-${idx}`">{{ change }}</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <main class="content">
+            <div id="dropZone" class="drop-zone" :class="{ 'is-dragging': isDragging }">
+                <canvas id="baseCanvas" class="offscreen"></canvas>
+                <canvas id="originalBaseCanvas" class="offscreen"></canvas>
+                <canvas id="outputCanvas"></canvas>
+                
+                <div class="drop-overlay loading-overlay" v-if="isLoadingBaseMap">
+                    <div class="spinner"></div>
+                    <div>{{ t('page.dropzone.loadingMap') }}</div>
+                </div>
+                <div class="drop-overlay" v-else-if="isDragging">{{ t('page.dropzone.dropToImport') }}</div>
+            </div>
+        </main>
+
+        <div id="previewModal" class="crop-modal" v-show="showPreviewModal">
+            <div class="crop-container preview-modal-container">
+                <button class="top-close-btn" @click="closePreviewModal" :title="t('page.preview.close')" :disabled="isExporting">✖</button>
+                <div class="preview-header">
+                    <h3>{{ t('page.preview.title') }}</h3>
+                    <div class="preview-controls">
+                        <label class="map-select">
+                            <input type="checkbox" v-model="exportCropTransparent">
+                            <span>{{ t('page.preview.autoCropTransparent') }}</span>
+                        </label>
+                        <label class="map-select">
+                            <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()">
+                            <span>{{ t('page.preview.includeBaseMap') }}</span>
+                        </label>
+                        <button @click="openPreviewCrop" :disabled="!hasOutput || isExporting || exportBlob">{{ t('page.preview.crop') }}</button>
+                        <button @click="clearPreviewCrop" :disabled="!hasOutput || isExporting || exportBlob">{{ t('page.preview.clearCrop') }}</button>
+                    </div>
+                </div>
+                <div class="preview-canvas-wrap">
+                    <canvas id="previewCanvas"></canvas>
+                </div>
+
+                <div class="crop-controls export-bar" v-if="!isExporting && !exportBlob">
+                    <div class="export-options-group">
+                        <div class="format-switcher">
+                            <button :class="{ active: exportFormat === 'image/webp' }" @click="exportFormat = 'image/webp'">WebP</button>
+                            <button :class="{ active: exportFormat === 'image/png' }" @click="exportFormat = 'image/png'">PNG</button>
+                        </div>
+                        <div class="quality-slider" v-if="exportFormat === 'image/webp'">
+                            <span class="label">{{ t('page.preview.quality') }} {{ Math.round(exportQuality * 100) }}%</span>
+                            <input type="range" v-model="exportQuality" min="0.5" max="1" step="0.01">
+                        </div>
+                        <div class="format-hint">
+                            <span v-if="exportFormat === 'image/png'" class="hint-text">{{ t('page.preview.pngHint') }}</span>
+                            <span v-if="exportFormat === 'image/webp'" class="hint-text">{{ t('page.preview.webpHint') }}</span>
+                        </div>
+                    </div>
+                    <div class="right-group">
+                        <div class="main-actions">
+                            <button class="confirm" @click="startExportProcess">{{ t('page.preview.startExport') }}</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export Progress/Result Area -->
+                <div class="export-ui" v-if="isExporting || exportBlob">
+                    <div class="export-status" v-if="isExporting">
+                         <span class="status-text">{{ statusText }}</span>
+                         <div class="progress-track">
+                             <div class="progress-fill" :style="{ width: exportProgress + '%' }"></div>
+                         </div>
+                         <span class="progress-text">{{ exportProgress }}%</span>
+                    </div>
+                    
+                    <div class="export-result" v-if="exportBlob">
+                        <div class="result-actions">
+                             <div class="result-file-info">
+                                <span class="badge">{{ previewInfo.size }}</span>
+                                <span class="format-badge">{{ exportBlob?.type?.split('/')[1]?.toUpperCase() }}</span>
+                                <span class="dim-info">{{ previewInfo.width }} x {{ previewInfo.height }}</span>
+                             </div>
+                             <div class="action-buttons">
+                                <button class="confirm" @click="downloadExportedBlob">{{ t('page.preview.downloadFile') }}</button>
+                                <button @click="exportBlob = null; statusText = ''">{{ t('page.preview.exportAgain') }}</button>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="cropModal" class="crop-modal" v-show="showCrop">
+            <div class="crop-container">
+                <div class="crop-header">
+                    <div class="crop-title-group">
+                        <h3>{{ t('page.crop.title') }}</h3>
+                        <div class="crop-status">{{ cropStatus }}</div>
+                    </div>
+                    <div class="crop-edit-toolbar">
+                        <label v-if="cropEditMode" class="brush-size-control">
+                            <span>{{ t('page.crop.brushSize') }} {{ cropBrushSize }}px</span>
+                            <input type="range" v-model="cropBrushSize" min="8" max="120" step="1" @input="refreshCropBrushCursor">
+                        </label>
+                        <button v-if="cropEditMode" @click="undoCropEdit" :disabled="!cropCanUndo">{{ t('page.crop.undo') }}</button>
+                        <button v-if="cropEditMode" @click="redoCropEdit" :disabled="!cropCanRedo">{{ t('page.crop.redoUndo') }}</button>
+                        <button @click="resetCrop">{{ cropEditMode ? t('page.crop.resetErase') : t('page.crop.resetSelection') }}</button>
+                        <button v-if="!cropEditMode" @click="selectAllCrop">{{ t('page.crop.selectAll') }}</button>
+                        <button v-if="!cropEditMode" @click="toggleCropEditMode">{{ t('page.crop.eraser') }}</button>
+                    </div>
+                </div>
+                <div class="crop-wrapper-outer">
+                    <div class="crop-wrapper">
+                        <img id="cropImage" src="" :alt="t('page.crop.cropPreviewAlt')">
+                        <canvas id="cropEditCanvas" :class="{ hidden: !cropEditMode }"></canvas>
+                    </div>
+                </div>
+                <div class="crop-controls">
+                    <label v-if="showBrightnessEnhanceOption" class="map-select map-select-stack crop-enhance-toggle" :title="t('page.crop.enhanceTitle')">
+                        <span>
+                            <input type="checkbox" v-model="enhanceMapBoundaryBrightness" @change="onEnhanceBoundaryToggle($event)" :disabled="isProcessing || isLoadingBaseMap">
+                            <span>{{ t('page.crop.enhanceLabel') }}</span>
+                        </span>
+                        <small class="map-select-note">{{ t('page.crop.enhanceHint') }}</small>
+                    </label>
+                    <button @click="cancelCrop">{{ cropCancelButtonText }}</button>
+                    <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">{{ t('page.crop.eraserDone') }}</button>
+                    <button class="confirm" v-else @click="confirmCrop">{{ cropConfirmButtonText }}</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="confirmModal" class="crop-modal" v-show="showConfirmModal">
+            <div class="crop-container confirm-container">
+                <h3>{{ confirmModalTitle }}</h3>
+                <div class="confirm-content">{{ confirmModalMessage }}</div>
+                <div class="crop-controls">
+                    <button @click="cancelModalAction">{{ confirmModalCancelText }}</button>
+                    <button class="confirm" @click="confirmModalAction">{{ confirmModalConfirmText }}</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

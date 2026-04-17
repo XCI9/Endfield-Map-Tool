@@ -1,73 +1,214 @@
 // ─────────────────────────────────────────────
-// UI text dictionary
-// Centralized user-visible strings for easy edits
+// i18n + UI text compatibility layer
 // ─────────────────────────────────────────────
 
-var UIText = {
-    STATUS: {
-        INIT: '正在初始化... ',
-        OPENCV_INITIALIZING: '⏳ OpenCV 初始化中...',
-        OPENCV_INIT_FAILED: '❌ OpenCV 初始化失敗',
+(function initI18N(global) {
+    const LANGUAGE_STORAGE_KEY = 'endfield.lang';
+    const LOCALES = global.END_FIELD_LOCALES || {};
+    const DEFAULT_LANGUAGE = 'zh-TW';
+    const LANGUAGE_LABELS = {
+        'zh-TW': '繁體中文',
+        'zh-CN': '简体中文',
+        en: 'English',
+    };
+    const SUPPORTED_LANGUAGES = (() => {
+        const localeKeys = Object.keys(LOCALES || {});
+        const normalized = localeKeys
+            .map((lang) => normalizeLanguage(lang))
+            .filter((lang, index, list) => list.indexOf(lang) === index);
+        if (!normalized.includes(DEFAULT_LANGUAGE)) normalized.unshift(DEFAULT_LANGUAGE);
+        return normalized;
+    })();
+    const SUPPORTED_LANGUAGE_SET = new Set(SUPPORTED_LANGUAGES);
 
-        BASE_MAP_NOT_LOADED: '❌ 基底地圖尚未載入',
-        ORB_NOT_LOADED: '❌ ORB 指紋尚未載入，請稍候或重新選擇地圖',
-        DETECTING_FEATURES: '⏳ 正在偵測截圖特徵點...',
-        SCREENSHOT_FULLY_TRANSPARENT: '❌ 截圖全透明，無法偵測特徵點',
-        FEATURES_NOT_ENOUGH: (count) => `❌ 截圖特徵點不足 (${count} 個)，請使用包含更多細節的截圖`,
-        FEATURES_NOT_ENOUGH_AFTER_DEDUP: (count) => `❌ 截圖特徵點不足 (去重後 ${count} 個)，請使用包含更多細節的截圖`,
-        MATCHING_IN_PROGRESS: (count) => `⏳ 正在比對 ${count} 個特徵點...`,
-        MATCHING_NOT_ENOUGH: (count) => `❌ 匹配特徵點不足 (${count} 個)，請嘗試包含更多地圖細節的截圖`,
-        RANSAC_FAILED: '❌ 無法確認截圖位置 (RANSAC 失敗)，請嘗試其他截圖',
-        LOW_INLIERS_RETRY: (inliers, factor, attempt, total) => `⚠️ 內點僅 ${inliers} (<10)，改用 ${factor}x 尺寸重試 (${attempt}/${total})...`,
-        LOW_INLIERS_USE_BEST: (inliers, factor) => `⚠️ 重試後內點仍偏低，採用最佳結果（inlier=${inliers}, factor=${factor}x）...`,
-        MATCH_SUCCESS: (elapsed, inliers, scale) => `✅ 成功！耗時: ${elapsed}ms，內點: ${inliers}，縮放比例: ${scale.toFixed(2)}`,
+    function detectLanguageToken(lang) {
+        if (!lang) return null;
+        const normalized = String(lang).trim();
+        const lower = normalized.toLowerCase();
+        if (lower.startsWith('zh-cn') || lower.includes('hans')) return 'zh-CN';
+        if (lower === 'zh' || lower === 'zh-tw' || lower.startsWith('zh-tw-') || lower === 'zh-hant' || lower.startsWith('zh-hant-')) return 'zh-TW';
+        if (lower === 'en' || lower.startsWith('en-')) return 'en';
+        return null;
+    }
 
-        EXPORT_PREPARING: '📦 準備匯出中...',
-        EXPORT_TRANSPARENT_IMAGE: '❌ 圖片全為透明，無法匯出',
-        EXPORT_CROPPING: '✂️ 正在裁切圖片...',
-        EXPORT_COMPRESSING: (formatName) => `💾 正在壓縮圖片 (${formatName})...`,
-        EXPORT_DONE: '✅ 匯出完成，準備下載',
-        EXPORT_FAILED: (message) => `❌ 匯出失敗: ${message}`,
+    function normalizeLanguage(lang) {
+        return detectLanguageToken(lang) || DEFAULT_LANGUAGE;
+    }
 
-        BASE_MAP_LOADING: (mapName) => `⏳ 載入基底地圖 ${mapName} 中...`,
-        BASE_MAP_LOAD_FAILED: (mapName, file) => `❌ 無法載入基底地圖：${mapName}。請確認 ${file} 是否存在。`,
-        ORB_LOADING: '⏳ 載入 ORB 指紋中...',
-        BASE_MAP_LOADED: (mapName) => `✅ 基底地圖已載入：${mapName}，請上傳截圖`,
-        BASE_MAP_PROCESS_FAILED: '❌ 基底地圖處理失敗，請重新整理後再試',
-        CHANGELOG_LOAD_FAILED: '❌ 更新日誌載入失敗，請稍後重新整理',
+    function toSupportedLanguage(lang) {
+        const normalized = detectLanguageToken(lang);
+        if (!normalized) return null;
+        return SUPPORTED_LANGUAGE_SET.has(normalized) ? normalized : null;
+    }
 
-        FILE_NOT_IMAGE: '❌ 只支援圖片檔案',
-        UNDO_DONE: '↩️ 已復原上一步操作',
-    },
+    function splitPathSegments(pathname) {
+        return String(pathname || '/')
+            .split('/')
+            .map((segment) => segment.trim())
+            .filter((segment) => segment.length > 0);
+    }
 
-    CROP: {
-        ADJUST_AREA: '請調整裁剪區域',
-        DRAG_TO_SELECT: '請拖拽選擇要裁剪的區域',
-        CANCEL_UPLOAD: '取消上傳',
-        CONFIRM_UPLOAD: '確認上傳',
-        CANCEL_CROP: '取消裁剪',
-        CONFIRM_CROP: '確認裁剪',
-        AREA_TOO_SMALL: '裁剪區域過小，請重新選擇。',
-        ERASER_MODE: '橡皮擦模式：在圖片上拖曳即可擦除。',
-        TRANSPARENT_WARNING_WITH_MAP: (ratioPercent) => `⚠️ 圖片透明區域達 ${ratioPercent}%，可能影響辨識！請盡量保留更多實體地圖畫面，或裁切掉透明區域。`,
-        TRANSPARENT_WARNING_SIMPLE: (ratioPercent) => `⚠️ 圖片透明區域達 ${ratioPercent}%，可能影響辨識！請裁掉透明區域。`,
-        ENHANCE_APPLIED: '已套用邊界亮度提升。',
-        ENHANCE_DISABLED: '已關閉邊界亮度提升。',
-        ENHANCE_DISABLED_AND_RESET: '已關閉邊界亮度提升，編輯狀態已重置。',
-    },
+    function getPathContext(pathname) {
+        const segments = splitPathSegments(pathname);
+        if (segments[segments.length - 1]?.toLowerCase() === 'index.html') {
+            segments.pop();
+        }
 
-    MODAL: {
-        CONFIRM: '確認',
-        CANCEL: '取消',
+        let language = DEFAULT_LANGUAGE;
+        let languageSegmentIndex = -1;
+        for (let index = 0; index < segments.length; index += 1) {
+            const candidate = toSupportedLanguage(segments[index]);
+            if (candidate) {
+                language = candidate;
+                languageSegmentIndex = index;
+                break;
+            }
+        }
 
-        SWITCH_MAP_TITLE: '確認切換地圖？',
-        SWITCH_MAP_MESSAGE: '目前已有處理完成的地圖結果。切換地圖將會遺失目前的進度，是否確認切換？',
-        SWITCH_MAP_CONFIRM: '確認切換',
+        if (languageSegmentIndex >= 0) {
+            segments.splice(languageSegmentIndex, 1);
+        }
 
-        ENHANCE_TOGGLE_TITLE: (actionText) => `確認${actionText}功能？`,
-        ENHANCE_TOGGLE_MESSAGE: (actionText) => `${actionText}此功能會重置所有編輯狀態，是否繼續`,
-        ENHANCE_TOGGLE_CONFIRM: (actionText) => `確認${actionText}`,
-        ACTION_ENABLE: '開啟',
-        ACTION_DISABLE: '關閉',
-    },
-};
+        return {
+            language,
+            hasLanguageSegment: languageSegmentIndex >= 0,
+            baseSegments: segments,
+        };
+    }
+
+    function getLanguagePath(language, pathname) {
+        const targetLanguage = toSupportedLanguage(language) || DEFAULT_LANGUAGE;
+        const context = getPathContext(pathname ?? global.location?.pathname ?? '/');
+        const segments = context.baseSegments.slice();
+
+        if (targetLanguage !== DEFAULT_LANGUAGE) {
+            segments.push(targetLanguage);
+        }
+
+        if (segments.length === 0) return '/';
+        return `/${segments.join('/')}/`;
+    }
+
+    function getLanguageUrl(language, pathname) {
+        const path = getLanguagePath(language, pathname);
+        const origin = global.location?.origin || '';
+        return `${origin}${path}`;
+    }
+
+    function detectInitialLanguage() {
+        const fromPath = getPathContext(global.location?.pathname || '/');
+        if (fromPath.hasLanguageSegment) return fromPath.language;
+        return DEFAULT_LANGUAGE;
+    }
+
+    let currentLanguage = detectInitialLanguage();
+    const listeners = [];
+
+    function getLocale(language = currentLanguage) {
+        return LOCALES[language] || LOCALES['zh-TW'] || { mapNames: {}, text: {}, uiText: {} };
+    }
+
+    function deepGet(obj, path) {
+        return path.split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
+    }
+
+    function resolveMapName(mapNameOrKey) {
+        const locale = getLocale();
+        if (locale.mapNames[mapNameOrKey]) return locale.mapNames[mapNameOrKey];
+        if (typeof mapNameOrKey === 'string') {
+            const mapEntry = typeof MAPS !== 'undefined' ? Object.values(MAPS).find((item) => item.name === mapNameOrKey) : null;
+            if (mapEntry && locale.mapNames) {
+                const found = Object.entries(MAPS).find(([, item]) => item === mapEntry);
+                if (found && locale.mapNames[found[0]]) return locale.mapNames[found[0]];
+            }
+        }
+        return mapNameOrKey;
+    }
+
+    function notifyLanguageChange() {
+        listeners.forEach((listener) => {
+            try {
+                listener(currentLanguage);
+            } catch (_error) {
+                // Ignore listener errors to keep app stable.
+            }
+        });
+    }
+
+    function setLanguage(lang) {
+        const normalized = normalizeLanguage(lang);
+        if (normalized === currentLanguage) return currentLanguage;
+        currentLanguage = normalized;
+        try {
+            global.localStorage?.setItem(LANGUAGE_STORAGE_KEY, currentLanguage);
+        } catch (_error) {
+            // Ignore storage access errors.
+        }
+        notifyLanguageChange();
+        return currentLanguage;
+    }
+
+    function t(key) {
+        const args = Array.prototype.slice.call(arguments, 1);
+        const current = deepGet(getLocale().text, key);
+        if (typeof current === 'function') return current.apply(null, args);
+        if (current !== undefined) return current;
+        const fallback = deepGet((LOCALES['zh-TW'] || {}).text || {}, key);
+        if (typeof fallback === 'function') return fallback.apply(null, args);
+        return fallback !== undefined ? fallback : key;
+    }
+
+    function getStatusToastLoadingKeywords(language = currentLanguage) {
+        const localeUi = getLocale(language).uiText || {};
+        const fallbackUi = (LOCALES['zh-TW'] || {}).uiText || {};
+        const localized = localeUi.STATUS_TOAST?.LOADING_KEYWORDS;
+        const fallback = fallbackUi.STATUS_TOAST?.LOADING_KEYWORDS;
+        if (Array.isArray(localized) && localized.length > 0) return localized.slice();
+        if (Array.isArray(fallback) && fallback.length > 0) return fallback.slice();
+        return [];
+    }
+
+    function createSectionProxy(sectionName) {
+        return new Proxy({}, {
+            get(_target, key) {
+                const localeUi = getLocale().uiText || {};
+                const fallbackUi = (LOCALES['zh-TW'] || {}).uiText || {};
+                const section = localeUi[sectionName] || fallbackUi[sectionName] || {};
+                const fallbackSection = fallbackUi[sectionName] || {};
+                const value = section[key] !== undefined ? section[key] : fallbackSection[key];
+                return value;
+            },
+        });
+    }
+
+    const UITextProxy = new Proxy({}, {
+        get(_target, sectionName) {
+            return createSectionProxy(sectionName);
+        },
+    });
+
+    global.I18N = {
+        getLanguage: () => currentLanguage,
+        setLanguage,
+        getLanguagePath,
+        getLanguageUrl,
+        getDefaultLanguage: () => DEFAULT_LANGUAGE,
+        getLanguageLabel: (language) => {
+            const normalized = toSupportedLanguage(language) || DEFAULT_LANGUAGE;
+            return LANGUAGE_LABELS[normalized] || normalized;
+        },
+        t,
+        getStatusToastLoadingKeywords,
+        getMapName: (mapKey) => resolveMapName(mapKey),
+        getSupportedLanguages: () => SUPPORTED_LANGUAGES.slice(),
+        onChange: (listener) => {
+            listeners.push(listener);
+            return () => {
+                const index = listeners.indexOf(listener);
+                if (index >= 0) listeners.splice(index, 1);
+            };
+        },
+    };
+
+    global.UIText = UITextProxy;
+})(window);
