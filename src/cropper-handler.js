@@ -295,12 +295,14 @@ const CropperHandler = {
 
     openFilePicker(appState) {
         if (appState.isProcessing || appState.isLoadingBaseMap) return;
+        appState.pendingScreenshotPlacementMode = 'auto';
         appState.$refs.subFile.value = '';
         appState.$refs.subFile.click();
     },
 
     onSubFileChange(appState, e) {
         const file = e.target.files?.[0];
+        appState.pendingScreenshotPlacementMode = 'auto';
         if (file) this.openCropWithFile(appState, file);
     },
 
@@ -561,6 +563,7 @@ const CropperHandler = {
         appState.showCrop = false;
         appState.showBrightnessEnhanceOption = false;
         appState.cropInputOriginalCanvas = null;
+        appState.pendingScreenshotPlacementMode = 'auto';
         if (appState.cropper) {
             appState.cropper.destroy();
             appState.cropper = null;
@@ -618,6 +621,11 @@ const CropperHandler = {
         let finalCanvas = croppedCanvas;
 
         if (currentFileCallback) await currentFileCallback(finalCanvas);
+    },
+
+    async confirmCropManual(appState) {
+        currentFileCallback = (canvas) => ManualPlacementHandler.start(appState, canvas);
+        await this.confirmCrop(appState);
     },
 
     async openPreviewCrop(appState) {
