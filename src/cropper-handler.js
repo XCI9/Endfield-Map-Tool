@@ -6,6 +6,7 @@
 
 const CropperHandler = {
     CROP_STORAGE_KEY: 'endfield-map-tool.uploadCropRect.v1',
+    ERASE_PATTERN_STORAGE_KEY: 'endfield-map-tool.uploadErasePattern.v1',
 
     _cloneCanvas(sourceCanvas) {
         const cloned = document.createElement('canvas');
@@ -20,6 +21,48 @@ const CropperHandler = {
         appState.cropCanRedo = !!(appState.cropEditRedoStack && appState.cropEditRedoStack.length > 0);
     },
 
+    _getSavedErasePatternRecord() {
+        try {
+            const raw = localStorage.getItem(this.ERASE_PATTERN_STORAGE_KEY);
+            if (!raw) return null;
+            const record = JSON.parse(raw);
+            const width = Number(record?.width);
+            const height = Number(record?.height);
+            if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+            if (width < 1 || height < 1 || typeof record?.maskDataUrl !== 'string') return null;
+            return {
+                width: Math.round(width),
+                height: Math.round(height),
+                maskDataUrl: record.maskDataUrl,
+                savedAt: typeof record.savedAt === 'string' ? record.savedAt : '',
+            };
+        } catch (_error) {
+            return null;
+        }
+    },
+
+    _formatErasePatternSavedAt(savedAt) {
+        if (!savedAt) return UIText.CROP.ERASE_PATTERN_TIME_UNKNOWN;
+        const date = new Date(savedAt);
+        if (Number.isNaN(date.getTime())) return UIText.CROP.ERASE_PATTERN_TIME_UNKNOWN;
+        try {
+            return date.toLocaleString(I18N.getLanguage?.() || undefined);
+        } catch (_error) {
+            return date.toLocaleString();
+        }
+    },
+
+    _updateErasePatternAvailability(appState) {
+        const sourceCanvas = appState.cropEditSourceCanvas;
+        const record = this._getSavedErasePatternRecord();
+        appState.cropErasePatternCompatible = !!(
+            sourceCanvas &&
+            record &&
+            record.width === sourceCanvas.width &&
+            record.height === sourceCanvas.height
+        );
+    },
+
     _resetCropEditState(appState) {
         appState.cropEditMode = false;
         appState.cropCanUndo = false;
@@ -32,6 +75,7 @@ const CropperHandler = {
         appState.cropEditSavedCropData = null;
         appState.cropEditTransform = null;
         appState.cropEditLastPoint = null;
+        appState.cropErasePatternCompatible = false;
     },
 
     _hasManualCropEdits(appState) {
@@ -179,6 +223,7 @@ const CropperHandler = {
             this._updateCropHistoryState(appState);
         }
 
+        this._updateErasePatternAvailability(appState);
         const storedCropData = !preservedCropData ? this._loadUploadCropRect(appState.cropEditSourceCanvas) : null;
         await this._rebuildCropperFromSource(appState, preservedCropData || storedCropData);
     },
@@ -349,6 +394,11 @@ const CropperHandler = {
         this.updateCropEditCursor(appState);
     },
 
+    _renderCropEditCanvasAfterLayout(appState) {
+        this.renderCropEditCanvas(appState);
+        requestAnimationFrame(() => this.renderCropEditCanvas(appState));
+    },
+
     openFilePicker(appState) {
         if (appState.isProcessing || appState.isLoadingBaseMap) return;
         appState.pendingScreenshotPlacementMode = 'auto';
@@ -455,7 +505,7 @@ const CropperHandler = {
             appState.cropEditRedoStack = [];
             this._updateCropHistoryState(appState);
             appState.cropStatus = UIText.CROP.ERASER_MODE;
-            this.renderCropEditCanvas(appState);
+            this._renderCropEditCanvasAfterLayout(appState);
             return;
         }
         if (appState.cropper) appState.cropper.reset();
@@ -480,6 +530,7 @@ const CropperHandler = {
             }
             appState.cropEditMode = true;
             appState.cropStatus = UIText.CROP.ERASER_MODE;
+            this._updateErasePatternAvailability(appState);
             await yieldToUI();
             this.renderCropEditCanvas(appState);
             return;
@@ -490,6 +541,130 @@ const CropperHandler = {
         this.updateCropEditCursor(appState);
         await yieldToUI();
         await this._rebuildCropperFromSource(appState, appState.cropEditSavedCropData);
+    },
+
+    async saveErasePattern(appState) {
+        if (cropMode !== 'input' || !appState.cropEditMode) return;
+        const originalCanvas = appState.cropEditOriginalCanvas;
+        const sourceCanvas = appState.cropEditSourceCanvas;
+        if (!originalCanvas || !sourceCanvas) return;
+        if (originalCanvas.width !== sourceCanvas.width || originalCanvas.height !== sourceCanvas.height) return;
+
+        const width = sourceCanvas.width;
+        const height = sourceCanvas.height;
+        const existingRecord = this._getSavedErasePatternRecord();
+        if (existingRecord) {
+            const savedAtText = this._formatErasePatternSavedAt(existingRecord.savedAt);
+            const confirmed = await appState.openConfirmModal(
+                UIText.MODAL.ERASE_PATTERN_OVERWRITE_TITLE,
+                UIText.MODAL.ERASE_PATTERN_OVERWRITE_MESSAGE(existingRecord.width, existingRecord.height, savedAtText),
+                UIText.MODAL.ERASE_PATTERN_OVERWRITE_CONFIRM,
+                UIText.MODAL.CANCEL
+            );
+            if (!confirmed) return;
+        }
+
+        const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
+        const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+        const originalData = originalCtx.getImageData(0, 0, width, height).data;
+        const sourceData = sourceCtx.getImageData(0, 0, width, height).data;
+
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = width;
+        maskCanvas.height = height;
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+        const maskImageData = maskCtx.createImageData(width, height);
+        const maskData = maskImageData.data;
+
+        for (let sourceIndex = 3, maskIndex = 0; sourceIndex < sourceData.length; sourceIndex += 4, maskIndex += 4) {
+            const originalAlpha = originalData[sourceIndex];
+            const sourceAlpha = sourceData[sourceIndex];
+            const alphaScale = originalAlpha > 0
+                ? Math.max(0, Math.min(255, Math.round((sourceAlpha / originalAlpha) * 255)))
+                : 255;
+            maskData[maskIndex] = alphaScale;
+            maskData[maskIndex + 1] = alphaScale;
+            maskData[maskIndex + 2] = alphaScale;
+            maskData[maskIndex + 3] = 255;
+        }
+
+        maskCtx.putImageData(maskImageData, 0, 0);
+
+        try {
+            localStorage.setItem(this.ERASE_PATTERN_STORAGE_KEY, JSON.stringify({
+                width,
+                height,
+                savedAt: new Date().toISOString(),
+                maskDataUrl: maskCanvas.toDataURL('image/png'),
+            }));
+            this._updateErasePatternAvailability(appState);
+            appState.cropStatus = UIText.CROP.ERASE_PATTERN_SAVED;
+        } catch (_error) {
+            appState.cropStatus = UIText.CROP.ERASE_PATTERN_SAVE_FAILED;
+        }
+    },
+
+    async applyErasePattern(appState) {
+        if (cropMode !== 'input' || !appState.cropEditMode) return;
+        const sourceCanvas = appState.cropEditSourceCanvas;
+        if (!sourceCanvas) return;
+
+        const record = this._getSavedErasePatternRecord();
+        if (!record) {
+            appState.cropErasePatternCompatible = false;
+            appState.cropStatus = UIText.CROP.ERASE_PATTERN_MISSING;
+            return;
+        }
+
+        if (record.width !== sourceCanvas.width || record.height !== sourceCanvas.height) {
+            appState.cropErasePatternCompatible = false;
+            appState.cropStatus = UIText.CROP.ERASE_PATTERN_SIZE_MISMATCH;
+            return;
+        }
+
+        const maskImage = new Image();
+        try {
+            await new Promise((resolve, reject) => {
+                maskImage.onload = () => resolve();
+                maskImage.onerror = reject;
+                maskImage.src = record.maskDataUrl;
+            });
+        } catch (_error) {
+            appState.cropStatus = UIText.CROP.ERASE_PATTERN_LOAD_FAILED;
+            return;
+        }
+
+        if (maskImage.width !== sourceCanvas.width || maskImage.height !== sourceCanvas.height) {
+            appState.cropErasePatternCompatible = false;
+            appState.cropStatus = UIText.CROP.ERASE_PATTERN_SIZE_MISMATCH;
+            return;
+        }
+
+        this._pushCropUndoSnapshot(appState);
+
+        const width = sourceCanvas.width;
+        const height = sourceCanvas.height;
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = width;
+        maskCanvas.height = height;
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+        maskCtx.drawImage(maskImage, 0, 0);
+
+        const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+        const sourceImageData = sourceCtx.getImageData(0, 0, width, height);
+        const sourceData = sourceImageData.data;
+        const maskData = maskCtx.getImageData(0, 0, width, height).data;
+
+        for (let sourceIndex = 3, maskIndex = 0; sourceIndex < sourceData.length; sourceIndex += 4, maskIndex += 4) {
+            sourceData[sourceIndex] = Math.round(sourceData[sourceIndex] * (maskData[maskIndex] / 255));
+        }
+
+        sourceCtx.putImageData(sourceImageData, 0, 0);
+        appState.cropEditRedoStack = [];
+        this._updateCropHistoryState(appState);
+        this._updateErasePatternAvailability(appState);
+        appState.cropStatus = UIText.CROP.ERASE_PATTERN_APPLIED;
+        this._renderCropEditCanvasAfterLayout(appState);
     },
 
     undoCropEdit(appState) {

@@ -248,6 +248,8 @@
                         </label>
                         <button v-if="cropEditMode" @click="undoCropEdit" :disabled="!cropCanUndo">{{ t('page.crop.undo') }}</button>
                         <button v-if="cropEditMode" @click="redoCropEdit" :disabled="!cropCanRedo">{{ t('page.crop.redoUndo') }}</button>
+                        <button v-if="cropEditMode && showBrightnessEnhanceOption" @click="saveErasePattern">{{ t('page.crop.saveErasePattern') }}</button>
+                        <button v-if="cropEditMode && showBrightnessEnhanceOption" @click="applyErasePattern" :disabled="!cropErasePatternCompatible">{{ t('page.crop.applyErasePattern') }}</button>
                         <button @click="resetCrop">{{ cropEditMode ? t('page.crop.resetErase') : t('page.crop.resetSelection') }}</button>
                         <button v-if="!cropEditMode" @click="selectAllCrop">{{ t('page.crop.selectAll') }}</button>
                         <button v-if="!cropEditMode" @click="toggleCropEditMode">{{ t('page.crop.eraser') }}</button>
