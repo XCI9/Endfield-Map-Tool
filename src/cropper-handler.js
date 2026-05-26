@@ -5,6 +5,8 @@
 // ─────────────────────────────────────────────
 
 const CropperHandler = {
+    CROP_STORAGE_KEY: 'endfield-map-tool.uploadCropRect.v1',
+
     _cloneCanvas(sourceCanvas) {
         const cloned = document.createElement('canvas');
         cloned.width = sourceCanvas.width;
@@ -53,6 +55,59 @@ const CropperHandler = {
         };
         return BrightnessBoundaryEnhancer.applyToCroppedCanvas(appState.cropInputOriginalCanvas, fullRect)
             || this._cloneCanvas(appState.cropInputOriginalCanvas);
+    },
+
+    _saveUploadCropRect(sourceCanvas, cropRect) {
+        if (!sourceCanvas || !cropRect || cropMode !== 'input') return;
+        const width = sourceCanvas.width || 0;
+        const height = sourceCanvas.height || 0;
+        if (width < 1 || height < 1 || cropRect.width < 1 || cropRect.height < 1) return;
+
+        const record = {
+            x: cropRect.x / width,
+            y: cropRect.y / height,
+            width: cropRect.width / width,
+            height: cropRect.height / height,
+        };
+
+        try {
+            localStorage.setItem(this.CROP_STORAGE_KEY, JSON.stringify(record));
+        } catch (_error) {
+            // Storage can be unavailable in private or embedded contexts.
+        }
+    },
+
+    _loadUploadCropRect(sourceCanvas) {
+        if (!sourceCanvas || cropMode !== 'input') return null;
+        const width = sourceCanvas.width || 0;
+        const height = sourceCanvas.height || 0;
+        if (width < 1 || height < 1) return null;
+
+        try {
+            const raw = localStorage.getItem(this.CROP_STORAGE_KEY);
+            if (!raw) return null;
+            const record = JSON.parse(raw);
+            const values = ['x', 'y', 'width', 'height'].map((key) => Number(record?.[key]));
+            if (values.some((value) => !Number.isFinite(value))) return null;
+
+            const [nx, ny, nw, nh] = values;
+            if (nw <= 0 || nh <= 0) return null;
+
+            const rect = {
+                x: Math.round(nx * width),
+                y: Math.round(ny * height),
+                width: Math.round(nw * width),
+                height: Math.round(nh * height),
+            };
+
+            rect.x = Math.min(Math.max(0, rect.x), width - 1);
+            rect.y = Math.min(Math.max(0, rect.y), height - 1);
+            rect.width = Math.min(Math.max(1, rect.width), width - rect.x);
+            rect.height = Math.min(Math.max(1, rect.height), height - rect.y);
+            return rect;
+        } catch (_error) {
+            return null;
+        }
     },
 
     _pushCropUndoSnapshot(appState) {
@@ -124,7 +179,8 @@ const CropperHandler = {
             this._updateCropHistoryState(appState);
         }
 
-        await this._rebuildCropperFromSource(appState, preservedCropData);
+        const storedCropData = !preservedCropData ? this._loadUploadCropRect(appState.cropEditSourceCanvas) : null;
+        await this._rebuildCropperFromSource(appState, preservedCropData || storedCropData);
     },
 
     async _rebuildCropperFromSource(appState, preservedCropData = null) {
@@ -607,6 +663,7 @@ const CropperHandler = {
         // Preserve pre-crop source canvas before reset so enhancement can use
         // the original coordinate system (pre-crop) as intended.
         const sourceCanvasForEnhance = appState.cropEditSourceCanvas;
+        this._saveUploadCropRect(sourceCanvasForEnhance, cropRect);
 
         appState.showCrop = false;
         appState.showBrightnessEnhanceOption = false;
