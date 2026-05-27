@@ -239,7 +239,7 @@
                 <div class="crop-header">
                     <div class="crop-title-group">
                         <h3>{{ t('page.crop.title') }}</h3>
-                        <div class="crop-status">{{ cropStatus }}</div>
+                        <div v-if="!cropEditMode" class="crop-status">{{ cropStatus }}</div>
                     </div>
                     <div class="crop-edit-toolbar">
                         <label v-if="cropEditMode" class="brush-size-control">
@@ -262,13 +262,16 @@
                     </div>
                 </div>
                 <div class="crop-controls">
-                    <label v-if="showBrightnessEnhanceOption" class="map-select map-select-stack crop-enhance-toggle" :title="t('page.crop.enhanceTitle')">
-                        <span>
-                            <input type="checkbox" v-model="enhanceMapBoundaryBrightness" @change="onEnhanceBoundaryToggle($event)" :disabled="isProcessing || isLoadingBaseMap">
-                            <span>{{ t('page.crop.enhanceLabel') }}</span>
-                        </span>
-                        <small class="map-select-note">{{ t('page.crop.enhanceHint') }}</small>
-                    </label>
+                    <div v-if="showBrightnessEnhanceOption" class="crop-enhance-group">
+                        <div v-if="cropEditMode" class="crop-status crop-status-bottom">{{ cropStatus }}</div>
+                        <label class="map-select map-select-stack crop-enhance-toggle" :title="t('page.crop.enhanceTitle')">
+                            <span>
+                                <input type="checkbox" v-model="enhanceMapBoundaryBrightness" @change="onEnhanceBoundaryToggle($event)" :disabled="isProcessing || isLoadingBaseMap">
+                                <span>{{ t('page.crop.enhanceLabel') }}</span>
+                            </span>
+                            <small class="map-select-note">{{ t('page.crop.enhanceHint') }}</small>
+                        </label>
+                    </div>
                     <button class="manual-stitch-crop-btn" v-if="!cropEditMode && showBrightnessEnhanceOption" @click="confirmCropManual">{{ t('page.crop.manualStitch') }}</button>
                     <button @click="cancelCrop">{{ cropCancelButtonText }}</button>
                     <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">{{ t('page.crop.eraserDone') }}</button>

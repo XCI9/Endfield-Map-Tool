@@ -84,6 +84,17 @@ body {
     margin-right: auto;
 }
 
+.crop-enhance-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-right: auto;
+}
+
+.crop-enhance-group .crop-enhance-toggle {
+    margin-right: 0;
+}
+
 .map-select input[type="checkbox"] {
     accent-color: var(--accent);
 }
@@ -534,9 +545,16 @@ body {
     color: var(--warn);
 }
 
+.crop-status-bottom {
+    flex: 0 1 auto;
+    margin: 0;
+    line-height: 1.35;
+}
+
 .crop-controls {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
     justify-content: flex-end;
 }
