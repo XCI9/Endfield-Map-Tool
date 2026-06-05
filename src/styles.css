@@ -84,6 +84,17 @@ body {
     margin-right: auto;
 }
 
+.crop-enhance-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-right: auto;
+}
+
+.crop-enhance-group .crop-enhance-toggle {
+    margin-right: 0;
+}
+
 .map-select input[type="checkbox"] {
     accent-color: var(--accent);
 }
@@ -412,6 +423,44 @@ body {
     z-index: 5;
 }
 
+.manual-placement-controls {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    z-index: 8;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    background: rgba(31, 31, 31, 0.92);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    transform: translateX(-50%);
+}
+
+.manual-placement-hint {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+.manual-placement-controls button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    background: #3a3a3a;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.manual-placement-controls .confirm {
+    background: var(--success);
+}
+
 .spinner {
     width: 40px;
     height: 40px;
@@ -496,9 +545,16 @@ body {
     color: var(--warn);
 }
 
+.crop-status-bottom {
+    flex: 0 1 auto;
+    margin: 0;
+    line-height: 1.35;
+}
+
 .crop-controls {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
     justify-content: flex-end;
 }
@@ -510,6 +566,11 @@ body {
     background: #3a3a3a;
     color: var(--text);
     cursor: pointer;
+}
+
+.crop-controls .manual-stitch-crop-btn {
+    padding: 6px 12px;
+    font-size: 0.82rem;
 }
 
 .crop-controls .confirm {
@@ -525,6 +586,7 @@ body {
     margin: 10px 0 20px;
     line-height: 1.5;
     color: var(--muted);
+    white-space: pre-line;
 }
 
 .crop-wrapper-outer {

@@ -83,6 +83,9 @@ const CanvasManager = {
         // showOriginalBase=true  → originalBaseCanvas + 所有截圖
         // showOriginalBase=false → 僅截圖（透明底）
         outputCtx.restore();
+        if (window.ManualPlacementHandler?.renderOverlay && window.__appState?.manualPlacementActive) {
+            window.ManualPlacementHandler.renderOverlay(window.__appState);
+        }
     },
 
     updateMinScale(showOriginalBase) {
@@ -159,9 +162,10 @@ const CanvasManager = {
         this.renderView(showOriginalBase);
     },
 
-    startPan(e, hasOutput) {
+    startPan(e, hasOutput, button = 0) {
         if (!hasOutput) return;
-        if (e.button !== 0) return;
+        if (e.button !== button) return;
+        e.preventDefault();
         isPanning = true;
         if (outputCanvas?.setPointerCapture) {
             outputCanvas.setPointerCapture(e.pointerId);

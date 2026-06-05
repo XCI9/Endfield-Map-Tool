@@ -59,6 +59,7 @@
     <script src="src/cropper-handler.js"></script>
     <script src="src/matcher.js"></script>
     <script src="src/history.js"></script>
+    <script src="src/manual-placement-handler.js"></script>
     <script src="src/changelog-loader.js"></script>
     <script defer src="src/app.js"></script>
     <script async src="assets/vendor/opencv.js" onload="onOpenCvReady();"></script>
@@ -93,18 +94,18 @@
                 </div>
                 <div class="actions">
                     <div class="map-switcher">
-                        <button :class="{ active: currentMapKey === 'map01' }" @click="selectMap('map01')" :disabled="isProcessing || isLoadingBaseMap">{{ getMapName('map01') }}</button>
-                        <button :class="{ active: currentMapKey === 'map02' }" @click="selectMap('map02')" :disabled="isProcessing || isLoadingBaseMap">{{ getMapName('map02') }}</button>
+                        <button :class="{ active: currentMapKey === 'map01' }" @click="selectMap('map01')" :disabled="isProcessing || isLoadingBaseMap || manualPlacementActive">{{ getMapName('map01') }}</button>
+                        <button :class="{ active: currentMapKey === 'map02' }" @click="selectMap('map02')" :disabled="isProcessing || isLoadingBaseMap || manualPlacementActive">{{ getMapName('map02') }}</button>
                     </div>
                     <label class="map-select">
-                        <input type="checkbox" v-model="showOriginalBase" @change="onOriginalToggle()" :disabled="isLoadingBaseMap">
+                        <input type="checkbox" v-model="showOriginalBase" @change="onOriginalToggle()" :disabled="isLoadingBaseMap || manualPlacementActive">
                         <span>{{ t('page.toolbar.showOriginalBase') }}</span>
                     </label>
-                    <button class="primary" @click="openFilePicker" :disabled="isProcessing || isLoadingBaseMap">{{ t('page.toolbar.selectScreenshot') }}</button>
+                    <button class="primary" @click="openFilePicker" :disabled="isProcessing || isLoadingBaseMap || manualPlacementActive">{{ t('page.toolbar.selectScreenshot') }}</button>
                     <input ref="subFile" class="hidden" type="file" accept="image/*" @change="onSubFileChange">
-                    <button @click="undoLastAction" :disabled="!canUndo || isProcessing || isLoadingBaseMap" :title="t('page.toolbar.undoTitle')">{{ t('page.toolbar.undo') }}</button>
-                    <button @click="reopenLastImageForCrop" :disabled="!canUndo || isProcessing || isLoadingBaseMap" :title="t('page.toolbar.recropLastTitle')">{{ t('page.toolbar.recropLast') }}</button>
-                    <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap">{{ t('page.toolbar.downloadFullMap') }}</button>
+                    <button @click="undoLastAction" :disabled="!canUndo || isProcessing || isLoadingBaseMap || manualPlacementActive" :title="t('page.toolbar.undoTitle')">{{ t('page.toolbar.undo') }}</button>
+                    <button @click="reopenLastImageForCrop" :disabled="!canUndo || isProcessing || isLoadingBaseMap || manualPlacementActive" :title="t('page.toolbar.recropLastTitle')">{{ t('page.toolbar.recropLast') }}</button>
+                    <button @click="openPreviewModal" :disabled="!hasOutput || isProcessing || isLoadingBaseMap || manualPlacementActive">{{ t('page.toolbar.downloadFullMap') }}</button>
                 </div>
             </div>
         </header>
@@ -159,6 +160,11 @@
                     <div>{{ t('page.dropzone.loadingMap') }}</div>
                 </div>
                 <div class="drop-overlay" v-else-if="isDragging">{{ t('page.dropzone.dropToImport') }}</div>
+                <div class="manual-placement-controls" v-if="manualPlacementActive">
+                    <span class="manual-placement-hint">{{ t('page.manualPlacement.middleDragHint') }}</span>
+                    <button class="confirm" @click="confirmManualPlacement">{{ t('page.manualPlacement.confirm') }}</button>
+                    <button @click="cancelManualPlacement">{{ t('page.manualPlacement.cancel') }}</button>
+                </div>
             </div>
         </main>
 
@@ -238,7 +244,7 @@
                 <div class="crop-header">
                     <div class="crop-title-group">
                         <h3>{{ t('page.crop.title') }}</h3>
-                        <div class="crop-status">{{ cropStatus }}</div>
+                        <div v-if="!cropEditMode" class="crop-status">{{ cropStatus }}</div>
                     </div>
                     <div class="crop-edit-toolbar">
                         <label v-if="cropEditMode" class="brush-size-control">
@@ -247,6 +253,8 @@
                         </label>
                         <button v-if="cropEditMode" @click="undoCropEdit" :disabled="!cropCanUndo">{{ t('page.crop.undo') }}</button>
                         <button v-if="cropEditMode" @click="redoCropEdit" :disabled="!cropCanRedo">{{ t('page.crop.redoUndo') }}</button>
+                        <button v-if="cropEditMode && showBrightnessEnhanceOption" @click="saveErasePattern">{{ t('page.crop.saveErasePattern') }}</button>
+                        <button v-if="cropEditMode && showBrightnessEnhanceOption" @click="applyErasePattern" :disabled="!cropErasePatternCompatible">{{ t('page.crop.applyErasePattern') }}</button>
                         <button @click="resetCrop">{{ cropEditMode ? t('page.crop.resetErase') : t('page.crop.resetSelection') }}</button>
                         <button v-if="!cropEditMode" @click="selectAllCrop">{{ t('page.crop.selectAll') }}</button>
                         <button v-if="!cropEditMode" @click="toggleCropEditMode">{{ t('page.crop.eraser') }}</button>
@@ -259,13 +267,17 @@
                     </div>
                 </div>
                 <div class="crop-controls">
-                    <label v-if="showBrightnessEnhanceOption" class="map-select map-select-stack crop-enhance-toggle" :title="t('page.crop.enhanceTitle')">
-                        <span>
-                            <input type="checkbox" v-model="enhanceMapBoundaryBrightness" @change="onEnhanceBoundaryToggle($event)" :disabled="isProcessing || isLoadingBaseMap">
-                            <span>{{ t('page.crop.enhanceLabel') }}</span>
-                        </span>
-                        <small class="map-select-note">{{ t('page.crop.enhanceHint') }}</small>
-                    </label>
+                    <div v-if="showBrightnessEnhanceOption" class="crop-enhance-group">
+                        <div v-if="cropEditMode" class="crop-status crop-status-bottom">{{ cropStatus }}</div>
+                        <label class="map-select map-select-stack crop-enhance-toggle" :title="t('page.crop.enhanceTitle')">
+                            <span>
+                                <input type="checkbox" v-model="enhanceMapBoundaryBrightness" @change="onEnhanceBoundaryToggle($event)" :disabled="isProcessing || isLoadingBaseMap">
+                                <span>{{ t('page.crop.enhanceLabel') }}</span>
+                            </span>
+                            <small class="map-select-note">{{ t('page.crop.enhanceHint') }}</small>
+                        </label>
+                    </div>
+                    <button class="manual-stitch-crop-btn" v-if="!cropEditMode && showBrightnessEnhanceOption" @click="confirmCropManual">{{ t('page.crop.manualStitch') }}</button>
                     <button @click="cancelCrop">{{ cropCancelButtonText }}</button>
                     <button class="confirm" v-if="cropEditMode" @click="toggleCropEditMode">{{ t('page.crop.eraserDone') }}</button>
                     <button class="confirm" v-else @click="confirmCrop">{{ cropConfirmButtonText }}</button>

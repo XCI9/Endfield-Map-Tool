@@ -252,6 +252,7 @@ function App() {
         cropEditMode: false,
         cropCanUndo: false,
         cropCanRedo: false,
+        cropErasePatternCompatible: false,
         cropBrushSize: 36,
         cropEditOriginalCanvas: null,
         isProcessing: false,
@@ -284,6 +285,9 @@ function App() {
         previewInfo: { width: 0, height: 0, size: '' },
         history: [],
         canUndo: false,
+        manualPlacementActive: false,
+        manualPlacement: null,
+        pendingScreenshotPlacementMode: 'auto',
         isOpenCvInitialized: false,
         _i18nUnsubscribe: null,
         _statusToastOffsetObserver: null,
@@ -428,7 +432,7 @@ function App() {
             const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
             ['dragenter', 'dragover'].forEach(evt => dropZoneEl.addEventListener(evt, (e) => {
                 prevent(e);
-                if (!this.isProcessing) this.isDragging = true;
+                if (!this.isProcessing && !this.manualPlacementActive) this.isDragging = true;
             }));
             ['dragleave', 'drop'].forEach(evt => dropZoneEl.addEventListener(evt, (e) => {
                 prevent(e);
@@ -436,19 +440,37 @@ function App() {
                 this.isDragging = false;
             }));
             dropZoneEl.addEventListener('drop', (e) => {
-                if (this.isProcessing) return;
+                if (this.isProcessing || this.manualPlacementActive) return;
                 const file = e.dataTransfer.files?.[0];
                 if (file) CropperHandler.openCropWithFile(this, file);
             });
 
             // ── Canvas interaction events ──
             outputCanvas.addEventListener('wheel',        (e) => CanvasManager.onZoom(e, this.hasOutput, this.showOriginalBase), { passive: false });
-            outputCanvas.addEventListener('pointerdown',  (e) => CanvasManager.startPan(e, this.hasOutput));
-            outputCanvas.addEventListener('dblclick',     () => CanvasManager.resetView(this.showOriginalBase));
-            outputCanvas.addEventListener('pointermove',  (e) => CanvasManager.movePan(e, this.showOriginalBase));
-            outputCanvas.addEventListener('pointerup',    (e) => CanvasManager.endPan(e));
-            outputCanvas.addEventListener('pointercancel',(e) => CanvasManager.endPan(e));
-            outputCanvas.addEventListener('pointerleave', (e) => CanvasManager.endPan(e));
+            outputCanvas.addEventListener('pointerdown',  (e) => {
+                if (ManualPlacementHandler.handlePointerDown(this, e)) return;
+                if (this.manualPlacementActive && e.button !== 0 && e.button !== 1) return;
+                CanvasManager.startPan(e, this.hasOutput, this.manualPlacementActive ? e.button : 0);
+            });
+            outputCanvas.addEventListener('dblclick',     () => {
+                if (!this.manualPlacementActive) CanvasManager.resetView(this.showOriginalBase);
+            });
+            outputCanvas.addEventListener('pointermove',  (e) => {
+                if (ManualPlacementHandler.handlePointerMove(this, e)) return;
+                CanvasManager.movePan(e, this.showOriginalBase);
+            });
+            outputCanvas.addEventListener('pointerup',    (e) => {
+                if (ManualPlacementHandler.handlePointerUp(this, e)) return;
+                CanvasManager.endPan(e);
+            });
+            outputCanvas.addEventListener('pointercancel',(e) => {
+                if (ManualPlacementHandler.handlePointerUp(this, e)) return;
+                CanvasManager.endPan(e);
+            });
+            outputCanvas.addEventListener('pointerleave', (e) => {
+                if (ManualPlacementHandler.handlePointerUp(this, e)) return;
+                CanvasManager.endPan(e);
+            });
 
             window.addEventListener('resize', () => CanvasManager.resizeOutputCanvas(this.showOriginalBase));
             if (window.ResizeObserver) {
@@ -462,7 +484,7 @@ function App() {
                 for (const item of e.clipboardData?.items || []) {
                     if (item.kind === 'file' && item.type.startsWith('image/')) {
                         const file = item.getAsFile();
-                        if (file && !this.isProcessing) { CropperHandler.openCropWithFile(this, file); break; }
+                        if (file && !this.isProcessing && !this.manualPlacementActive) { CropperHandler.openCropWithFile(this, file); break; }
                     }
                 }
             });
@@ -471,6 +493,17 @@ function App() {
             document.addEventListener('keydown', (e) => {
                 const key = e.key.toLowerCase();
                 const hasShortcutModifier = e.ctrlKey || e.metaKey;
+
+                if (this.manualPlacementActive) {
+                    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Enter') {
+                        e.preventDefault();
+                        this.confirmManualPlacement();
+                    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Escape') {
+                        e.preventDefault();
+                        this.cancelManualPlacement();
+                    }
+                    return;
+                }
 
                 if (hasShortcutModifier && !e.shiftKey && key === 'z') {
                     // Main view undo: only when no modal is open.
@@ -711,7 +744,7 @@ function App() {
         onPreviewBaseToggle()       { ExportHandler.updatePreview(this); },
 
         // ── File / Crop ──
-        openFilePicker()            { CropperHandler.openFilePicker(this); },
+        openFilePicker()            { if (!this.manualPlacementActive) CropperHandler.openFilePicker(this); },
         onSubFileChange(e)          { CropperHandler.onSubFileChange(this, e); },
         resetCrop()                 { CropperHandler.resetCrop(this); },
         selectAllCrop()             { CropperHandler.selectAllCrop(this); },
@@ -719,8 +752,11 @@ function App() {
         refreshCropBrushCursor()    { CropperHandler.updateCropEditCursor(this); },
         undoCropEdit()              { CropperHandler.undoCropEdit(this); },
         redoCropEdit()              { CropperHandler.redoCropEdit(this); },
+        async saveErasePattern()    { await CropperHandler.saveErasePattern(this); },
+        async applyErasePattern()   { await CropperHandler.applyErasePattern(this); },
         cancelCrop()                { CropperHandler.cancelCrop(this); },
         async confirmCrop()         { await CropperHandler.confirmCrop(this); },
+        async confirmCropManual()   { await CropperHandler.confirmCropManual(this); },
         async openPreviewCrop()     { await CropperHandler.openPreviewCrop(this); },
         clearPreviewCrop()          { CropperHandler.clearPreviewCrop(this); },
         async onEnhanceBoundaryToggle(event) { await CropperHandler.onEnhanceBoundaryToggle(this, event); },
@@ -750,6 +786,8 @@ function App() {
         downloadExportedBlob()      { ExportHandler.downloadExportedBlob(this); },
 
         // ── View ──
+        confirmManualPlacement()    { ManualPlacementHandler.confirm(this); },
+        cancelManualPlacement()     { ManualPlacementHandler.cancel(this); },
         resetView()                 { CanvasManager.resetView(this.showOriginalBase); },
         renderView()                { CanvasManager.renderView(this.showOriginalBase); },
     };
