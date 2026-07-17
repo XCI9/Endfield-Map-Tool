@@ -13,6 +13,7 @@ let _cachedAngleBuckets = null;
 const MATCH_ANGLE_BUCKET_WIDTH = 15;
 const MATCH_ANGLE_TOLERANCE = 15;
 const MATCH_ANGLE_BUCKET_COUNT = Math.ceil(360 / MATCH_ANGLE_BUCKET_WIDTH);
+const RANSAC_MAX_ITERATIONS = 2000;
 
 const Matcher = {
 
@@ -321,7 +322,12 @@ const Matcher = {
     //              y' = a*y + ty
     //
     // 使用 Float32Array 平坦陣列取代 {x,y}[] 物件，減少 GC 壓力與記憶體跳躍
-    _estimateScaleTranslation(srcX, srcY, dstX, dstY, n, threshold = 5.0, maxIter = 500, minInliers = 1) {
+    _estimateScaleTranslation(
+        srcX, srcY, dstX, dstY, n,
+        threshold = 5.0,
+        maxIter = RANSAC_MAX_ITERATIONS,
+        minInliers = 1
+    ) {
         if (n < minInliers) return null;
 
         const threshSq = threshold * threshold;
@@ -595,7 +601,7 @@ const Matcher = {
                     matchResult.srcY.subarray(0, matchResult.goodN),
                     matchResult.dstX.subarray(0, matchResult.goodN),
                     matchResult.dstY.subarray(0, matchResult.goodN),
-                    matchResult.goodN, 5.0, 500
+                    matchResult.goodN, 5.0, RANSAC_MAX_ITERATIONS
                 );
                 ransacElapsedMs += performance.now() - startedAt;
                 return result;
