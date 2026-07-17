@@ -114,6 +114,17 @@ const Matcher = {
         let goodN = 0;
         const startedAt = performance.now();
 
+        if (capacity === 0) {
+            return {
+                srcX, srcY, dstX, dstY,
+                goodN: 0,
+                loweN: 0,
+                elapsedMs: performance.now() - startedAt,
+                candidatePairs: 0,
+                passName: 'full',
+            };
+        }
+
         try {
             bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
             matches = new cv.DMatchVectorVector();
@@ -259,6 +270,51 @@ const Matcher = {
         };
     },
 
+    _recordScheduledAttempt(retryState, factor, phase, inliers, ok, reason = '') {
+        retryState.attemptInliers.push({ factor, phase, inliers, ok, reason });
+    },
+
+    _formatAttemptSummary(retryState) {
+        return retryState.attemptInliers
+            .map((x) => `${x.phase}:${x.factor}x=${x.inliers}${x.ok ? '' : `(${x.reason || 'fail'})`}`)
+            .join(', ');
+    },
+
+    _createRetryCanvas(retryState, factor) {
+        if (factor === 1) return retryState.baseCanvas;
+
+        const src = retryState.baseCanvas;
+        const rw = Math.max(1, Math.round(src.width * factor));
+        const rh = Math.max(1, Math.round(src.height * factor));
+        const retryCanvas = document.createElement('canvas');
+        retryCanvas.width = rw;
+        retryCanvas.height = rh;
+        const rctx = retryCanvas.getContext('2d');
+        rctx.imageSmoothingEnabled = true;
+        rctx.imageSmoothingQuality = 'high';
+        rctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, rw, rh);
+        return retryCanvas;
+    },
+
+    _nextScheduledAttempt(retryState) {
+        if (retryState.phaseIndex + 1 < retryState.factors.length) {
+            retryState.phaseIndex++;
+        } else if (retryState.phase === 'angle') {
+            // 所有縮放倍率的 angle bucket 都失敗後，才從 1x 開始完整比對階段。
+            retryState.phase = 'full';
+            retryState.phaseIndex = 0;
+        } else {
+            return null;
+        }
+
+        const factor = retryState.factors[retryState.phaseIndex];
+        return {
+            phase: retryState.phase,
+            factor,
+            canvas: this._createRetryCanvas(retryState, factor),
+        };
+    },
+
     // ── 縮放 + 平移 RANSAC 估算器 ──────────────────────────────────────────
     // 3-DOF：等比縮放 + 平移；已知輸入與底圖沒有旋轉差，因此固定 b = 0。
     //   Transform: x' = a*x + tx
@@ -362,14 +418,18 @@ const Matcher = {
         try {
             const startTime = performance.now();
 
-            // 內部重試狀態：當 inlier < 10 時按規則改變輸入尺寸重試
+            // 兩階段重試：先跑完所有 angle bucket 縮放，再跑所有 full match 縮放。
             const retryState = _retryState || (() => {
                 const srcPixels = canvas.width * canvas.height;
+                const scaleOrder = srcPixels < 250000
+                    ? [2.0, 3.0, 4.0, 0.5]
+                    : [0.5, 0.33, 0.25, 2.0];
                 return {
                     baseCanvas: canvas,
                     srcPixels,
-                    order: srcPixels < 250000 ? [2.0, 3.0, 4.0, 0.5] : [0.5, 0.33, 0.25, 2.],
-                    tried: [],
+                    factors: [1.0, ...scaleOrder],
+                    phase: 'angle',
+                    phaseIndex: 0,
                     best: null,
                     attemptInliers: [],
                 };
@@ -423,8 +483,8 @@ const Matcher = {
             if (emptyMask) { emptyMask.delete(); emptyMask = null; }
 
             if (nQuery < 4 || desSub.rows < 4) {
-                appState.statusText = UIText.STATUS.FEATURES_NOT_ENOUGH(nQuery);
-                return;
+                // 此倍率特徵不足時仍交由兩階段排程嘗試下一個縮放倍率。
+                console.log(`[ORB] features insufficient at ${retryState.phase}:${_retryFactor}x (${nQuery} kps)`);
             }
 
             // ── 3. 預先把截圖特徵點座標搬到 JS typed array ───────────────────
@@ -516,8 +576,7 @@ const Matcher = {
             }
 
             if (nKept < 4) {
-                appState.statusText = UIText.STATUS.FEATURES_NOT_ENOUGH_AFTER_DEDUP(nKept);
-                return;
+                console.log(`[ORB] features insufficient after dedup at ${retryState.phase}:${_retryFactor}x (${nKept} kps)`);
             }
 
             appState.statusText = UIText.STATUS.MATCHING_IN_PROGRESS(nKept);
@@ -526,7 +585,7 @@ const Matcher = {
             const desBase = this._getDesBase();   // ⚠️ 快取物件，不可在 finally 刪除
             const kpsBase = orbFingerprint.kps;
 
-            // ── 5. 角度分桶 BFMatcher knnMatch（k=2，供 Lowe ratio 使用）──────
+            // ── 5. 依排程執行 angle bucket / full BFMatcher knnMatch ─────────
             let ransacElapsedMs = 0;
             const estimatePass = (matchResult) => {
                 if (matchResult.goodN < 4) return null;
@@ -542,115 +601,114 @@ const Matcher = {
                 return result;
             };
 
-            let matchResult = this._collectAngleLimitedMatches(
-                desSub, fqptX, fqptY, fqptAngle, kpsBase
-            );
-            let simResult = estimatePass(matchResult);
-            const anglePairRatio = desSub.rows * desBase.rows > 0
-                ? matchResult.candidatePairs / (desSub.rows * desBase.rows)
-                : 1;
-            console.log(
-                `[ORB] 5. angle knnMatch: ${Math.round(matchResult.elapsedMs)}ms `
-                + `(${desSub.rows} query, ${(anglePairRatio * 100).toFixed(1)}% candidate pairs, `
-                + `Lowe=${matchResult.loweN}, good=${matchResult.goodN}, `
-                + `inliers=${simResult?.inliers.length || 0}, tolerance=±${MATCH_ANGLE_TOLERANCE}°)`
-            );
-
-            // 角度分桶找不到足夠穩定的結果時，退回原本的完整底圖搜尋，維持既有相容性。
-            if (!simResult || simResult.inliers.length < 10) {
-                const fullMatchResult = this._collectFullMatches(desSub, fqptX, fqptY, kpsBase);
-                const fullSimResult = estimatePass(fullMatchResult);
-                console.log(
-                    `[ORB] 5b. full knnMatch fallback: ${Math.round(fullMatchResult.elapsedMs)}ms `
-                    + `(${desSub.rows} query × ${desBase.rows} train, good=${fullMatchResult.goodN}, `
-                    + `inliers=${fullSimResult?.inliers.length || 0})`
+            const matchPhase = retryState.phase;
+            let matchResult;
+            if (matchPhase === 'angle') {
+                matchResult = this._collectAngleLimitedMatches(
+                    desSub, fqptX, fqptY, fqptAngle, kpsBase
                 );
-
-                const fullIsBetter = fullSimResult
-                    ? (
-                        !simResult
-                        || fullSimResult.inliers.length > simResult.inliers.length
-                        || (fullSimResult.inliers.length === simResult.inliers.length
-                            && fullMatchResult.goodN > matchResult.goodN)
-                    )
-                    : (!simResult && fullMatchResult.goodN > matchResult.goodN);
-                if (fullIsBetter) {
-                    matchResult = fullMatchResult;
-                    simResult = fullSimResult;
-                }
+            } else {
+                matchResult = this._collectFullMatches(desSub, fqptX, fqptY, kpsBase);
             }
 
-            // 匹配結束後才釋放 query descriptors，讓不足時仍可執行完整 fallback。
+            const simResult = estimatePass(matchResult);
+            if (matchPhase === 'angle') {
+                const anglePairRatio = desSub.rows * desBase.rows > 0
+                    ? matchResult.candidatePairs / (desSub.rows * desBase.rows)
+                    : 1;
+                console.log(
+                    `[ORB] 5. angle knnMatch: ${Math.round(matchResult.elapsedMs)}ms `
+                    + `(${desSub.rows} query, ${(anglePairRatio * 100).toFixed(1)}% candidate pairs, `
+                    + `Lowe=${matchResult.loweN}, good=${matchResult.goodN}, `
+                    + `inliers=${simResult?.inliers.length || 0}, tolerance=±${MATCH_ANGLE_TOLERANCE}°)`
+                );
+            } else {
+                console.log(
+                    `[ORB] 5. full knnMatch: ${Math.round(matchResult.elapsedMs)}ms `
+                    + `(${desSub.rows} query × ${desBase.rows} train, good=${matchResult.goodN}, `
+                    + `inliers=${simResult?.inliers.length || 0})`
+                );
+            }
+
             desSub.delete(); desSub = null;
 
             const goodN = matchResult.goodN;
-            if (!simResult && goodN < 4) {
-                appState.statusText = UIText.STATUS.MATCHING_NOT_ENOUGH(goodN);
-                return;
-            }
+            const inlierCount = simResult?.inliers.length || 0;
+            const failureReason = goodN < 4 ? 'matches' : 'ransac';
+            this._recordScheduledAttempt(
+                retryState,
+                _retryFactor,
+                matchPhase,
+                inlierCount,
+                !!simResult,
+                failureReason
+            );
+            const summary = this._formatAttemptSummary(retryState);
+            console.log(
+                `[ORB] 7. RANSAC: ${Math.round(ransacElapsedMs)}ms `
+                + `(phase=${matchPhase}, factor=${_retryFactor}x, inliers=${inlierCount}) | attempts: ${summary}`
+            );
 
-            // ── 7. 固定零旋轉的縮放 + 平移 RANSAC ───────────────────────────
-            if (!simResult) {
-                retryState.attemptInliers.push({ factor: _retryFactor, inliers: 0, ok: false });
-                const summary = retryState.attemptInliers
-                    .map((x) => `${x.factor}x=${x.inliers}${x.ok ? '' : '(fail)'}`)
-                    .join(', ');
-                console.log(`[ORB] 7. RANSAC: ${Math.round(ransacElapsedMs)}ms (factor=${_retryFactor}x, inliers=0) | attempts: ${summary}`);
-                appState.statusText = UIText.STATUS.RANSAC_FAILED;
-                return;
-            }
-            const { a, b, tx, ty, inliers } = simResult;
-            retryState.attemptInliers.push({ factor: _retryFactor, inliers: inliers.length, ok: true });
-            const summary = retryState.attemptInliers
-                .map((x) => `${x.factor}x=${x.inliers}${x.ok ? '' : '(fail)'}`)
-                .join(', ');
-            console.log(`[ORB] 7. RANSAC: ${Math.round(ransacElapsedMs)}ms (factor=${_retryFactor}x, inliers=${inliers.length}) | attempts: ${summary}`);
-
-            // 記錄目前嘗試的候選結果，供「全部 <10 inlier」時採用最佳值
-            const currentCandidate = {
-                factor: _retryFactor,
-                canvas,
-                a, b, tx, ty,
-                inliers,
-                inliersCount: inliers.length,
-                goodN,
-            };
-            if (!retryState.best
-                || currentCandidate.inliersCount > retryState.best.inliersCount
-                || (currentCandidate.inliersCount === retryState.best.inliersCount && currentCandidate.goodN > retryState.best.goodN)) {
-                retryState.best = currentCandidate;
-            }
-
-            // 內點不足時自動重試：
-            // 1) srcPixels < 250000: 2x -> 0.5x
-            // 2) srcPixels >= 250000: 0.5x -> 2x
-            if (inliers.length < 10) {
-                const nextFactor = retryState.order.find((f) => !retryState.tried.includes(f));
-                if (nextFactor !== undefined) {
-                    retryState.tried.push(nextFactor);
-                    const src = retryState.baseCanvas;
-                    const rw = Math.max(1, Math.round(src.width * nextFactor));
-                    const rh = Math.max(1, Math.round(src.height * nextFactor));
-                    const retryCanvas = document.createElement('canvas');
-                    retryCanvas.width = rw;
-                    retryCanvas.height = rh;
-                    const rctx = retryCanvas.getContext('2d');
-                    rctx.imageSmoothingEnabled = true;
-                    rctx.imageSmoothingQuality = 'high';
-                    rctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, rw, rh);
-
-                    appState.statusText = UIText.STATUS.LOW_INLIERS_RETRY(inliers.length, nextFactor, retryState.tried.length, retryState.order.length);
-                    return await this.processScreenshotAfterCrop(appState, retryCanvas, _customLevel0Override, retryState, nextFactor);
-                }
-
-                // 已無可重試倍率：採用所有嘗試中的最佳結果（不是最後一次）
-                if (retryState.best) {
-                    appState.statusText = UIText.STATUS.LOW_INLIERS_USE_BEST(retryState.best.inliersCount, retryState.best.factor);
+            // 記錄目前嘗試的候選結果，供所有 angle/full 縮放都失敗時採用最佳值。
+            let currentCandidate = null;
+            if (simResult) {
+                const { a, b, tx, ty, inliers } = simResult;
+                currentCandidate = {
+                    phase: matchPhase,
+                    factor: _retryFactor,
+                    canvas,
+                    a, b, tx, ty,
+                    inliers,
+                    inliersCount: inliers.length,
+                    goodN,
+                };
+                if (!retryState.best
+                    || currentCandidate.inliersCount > retryState.best.inliersCount
+                    || (currentCandidate.inliersCount === retryState.best.inliersCount
+                        && currentCandidate.goodN > retryState.best.goodN)) {
+                    retryState.best = currentCandidate;
                 }
             }
 
-            // 若最佳候選不是目前這次，切換後續使用的參數
-            const chosen = (inliers.length < 10 && retryState.best) ? retryState.best : currentCandidate;
+            let chosen = currentCandidate && currentCandidate.inliersCount >= 10
+                ? currentCandidate
+                : null;
+
+            if (!chosen) {
+                const nextAttempt = this._nextScheduledAttempt(retryState);
+                if (nextAttempt) {
+                    const nextAttemptNumber = retryState.attemptInliers.length + 1;
+                    const totalAttempts = retryState.factors.length * 2;
+                    appState.statusText = UIText.STATUS.LOW_INLIERS_RETRY(
+                        inlierCount,
+                        nextAttempt.factor,
+                        nextAttemptNumber,
+                        totalAttempts
+                    );
+                    console.log(
+                        `[ORB] schedule: ${matchPhase}:${_retryFactor}x -> `
+                        + `${nextAttempt.phase}:${nextAttempt.factor}x`
+                    );
+                    return await this.processScreenshotAfterCrop(
+                        appState,
+                        nextAttempt.canvas,
+                        _customLevel0Override,
+                        retryState,
+                        nextAttempt.factor
+                    );
+                }
+
+                if (!retryState.best) {
+                    appState.statusText = goodN < 4
+                        ? UIText.STATUS.MATCHING_NOT_ENOUGH(goodN)
+                        : UIText.STATUS.RANSAC_FAILED;
+                    return;
+                }
+
+                chosen = retryState.best;
+                appState.statusText = UIText.STATUS.LOW_INLIERS_USE_BEST(chosen.inliersCount, chosen.factor);
+            }
+
             const chosenCanvas = chosen.canvas;
             const chosenA = chosen.a;
             const chosenB = chosen.b;
