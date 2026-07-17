@@ -8,34 +8,269 @@
 // 改為地圖不變時重用同一個 cv.Mat。
 let _cachedDesBaseMat = null;
 let _cachedFpRef      = null;   // 指向目前 orbFingerprint 物件的參考
+let _cachedAngleBuckets = null;
+
+const MATCH_ANGLE_BUCKET_WIDTH = 15;
+const MATCH_ANGLE_TOLERANCE = 15;
+const MATCH_ANGLE_BUCKET_COUNT = Math.ceil(360 / MATCH_ANGLE_BUCKET_WIDTH);
 
 const Matcher = {
 
+    _deleteAngleBucketCache() {
+        if (!_cachedAngleBuckets) return;
+        for (const bucket of _cachedAngleBuckets) {
+            if (bucket?.ownsMat && bucket.desMat) bucket.desMat.delete();
+        }
+        _cachedAngleBuckets = null;
+    },
+
+    _syncBaseCache() {
+        if (_cachedFpRef === orbFingerprint) return;
+
+        if (_cachedDesBaseMat) {
+            _cachedDesBaseMat.delete();
+            _cachedDesBaseMat = null;
+        }
+        this._deleteAngleBucketCache();
+
+        if (orbFingerprint) {
+            _cachedDesBaseMat = FingerprintLoader.toOpenCV(orbFingerprint).desMat;
+        }
+        _cachedFpRef = orbFingerprint;
+    },
+
     // 取得已快取的 desBase Mat；orbFingerprint 換圖時自動重建
     _getDesBase() {
-        if (_cachedFpRef !== orbFingerprint) {
-            if (_cachedDesBaseMat) { _cachedDesBaseMat.delete(); _cachedDesBaseMat = null; }
-            if (orbFingerprint) {
-                _cachedDesBaseMat = FingerprintLoader.toOpenCV(orbFingerprint).desMat;
-            }
-            _cachedFpRef = orbFingerprint;
-        }
+        this._syncBaseCache();
         return _cachedDesBaseMat;
     },
 
-    // ── 相似變換 RANSAC 估算器 ─────────────────────────────────────────────
-    // 等效於 Python 的 cv2.estimateAffinePartial2D(RANSAC)
-    // 4-DOF：等比縮放 + 旋轉 + 平移，不含剪切與透視
-    //   Transform: x' = a*x - b*y + tx
-    //              y' = b*x + a*y + ty
+    _angleDiff(a, b) {
+        let d = Math.abs(a - b) % 360;
+        return Math.min(d, 360 - d);
+    },
+
+    // 由於待匹配圖與底圖圖片角度相同，因此可只檢查一定角度範圍內的特徵
+    _getBaseAngleBuckets() {
+        this._syncBaseCache();
+        if (_cachedAngleBuckets) return _cachedAngleBuckets;
+
+        const desBase = _cachedDesBaseMat;
+        const kpsBase = orbFingerprint.kps;
+        const descriptorSize = desBase.cols;
+        const expandedTolerance = MATCH_ANGLE_TOLERANCE + MATCH_ANGLE_BUCKET_WIDTH / 2;
+        const buckets = new Array(MATCH_ANGLE_BUCKET_COUNT);
+
+        for (let bucketIndex = 0; bucketIndex < MATCH_ANGLE_BUCKET_COUNT; bucketIndex++) {
+            const centerAngle = (bucketIndex + 0.5) * MATCH_ANGLE_BUCKET_WIDTH;
+            const indices = [];
+
+            for (let i = 0; i < kpsBase.length; i++) {
+                const angle = Number(kpsBase[i].angle);
+                if (!Number.isFinite(angle) || angle < 0 || this._angleDiff(angle, centerAngle) <= expandedTolerance) {
+                    indices.push(i);
+                }
+            }
+
+            // k=2 至少需要兩個 train descriptors；極端資料直接退回完整底圖。
+            if (indices.length < 2) {
+                buckets[bucketIndex] = {
+                    desMat: desBase,
+                    baseIndices: null,
+                    ownsMat: false,
+                };
+                continue;
+            }
+
+            const desMat = new cv.Mat(indices.length, descriptorSize, cv.CV_8UC1);
+            const rawDst = desMat.data;
+            const rawSrc = desBase.data;
+            for (let row = 0; row < indices.length; row++) {
+                const baseIndex = indices[row];
+                const srcOffset = baseIndex * descriptorSize;
+                rawDst.set(rawSrc.subarray(srcOffset, srcOffset + descriptorSize), row * descriptorSize);
+            }
+
+            buckets[bucketIndex] = {
+                desMat,
+                baseIndices: Int32Array.from(indices),
+                ownsMat: true,
+            };
+        }
+
+        _cachedAngleBuckets = buckets;
+        return buckets;
+    },
+
+    _collectFullMatches(desSub, qptX, qptY, kpsBase) {
+        const capacity = desSub.rows;
+        const srcX = new Float32Array(capacity);
+        const srcY = new Float32Array(capacity);
+        const dstX = new Float32Array(capacity);
+        const dstY = new Float32Array(capacity);
+        const desBase = this._getDesBase();
+        let bf = null;
+        let matches = null;
+        let goodN = 0;
+        const startedAt = performance.now();
+
+        try {
+            bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
+            matches = new cv.DMatchVectorVector();
+            bf.knnMatch(desSub, desBase, matches, 2);
+
+            const mSize = matches.size();
+            for (let i = 0; i < mSize; i++) {
+                const row = matches.get(i);
+                if (row.size() < 2) continue;
+                const m = row.get(0);
+                const r = row.get(1);
+                if (m.distance >= 0.8 * r.distance) continue;
+
+                const qi = m.queryIdx;
+                const ti = m.trainIdx;
+                srcX[goodN] = qptX[qi];
+                srcY[goodN] = qptY[qi];
+                dstX[goodN] = kpsBase[ti].x;
+                dstY[goodN] = kpsBase[ti].y;
+                goodN++;
+            }
+        } finally {
+            if (matches) matches.delete();
+            if (bf) bf.delete();
+        }
+
+        return {
+            srcX, srcY, dstX, dstY,
+            goodN,
+            loweN: goodN,
+            elapsedMs: performance.now() - startedAt,
+            candidatePairs: desSub.rows * desBase.rows,
+            passName: 'full',
+        };
+    },
+
+    _collectAngleLimitedMatches(desSub, qptX, qptY, qptAngle, kpsBase) {
+        const capacity = desSub.rows;
+        const descriptorSize = desSub.cols;
+        const srcX = new Float32Array(capacity);
+        const srcY = new Float32Array(capacity);
+        const dstX = new Float32Array(capacity);
+        const dstY = new Float32Array(capacity);
+        const queryGroups = Array.from({ length: MATCH_ANGLE_BUCKET_COUNT }, () => []);
+        const unknownAngleQueries = [];
+        const baseBuckets = this._getBaseAngleBuckets();
+        const desBase = this._getDesBase();
+        let bf = null;
+        let goodN = 0;
+        let loweN = 0;
+        let candidatePairs = 0;
+        const startedAt = performance.now();
+
+        for (let i = 0; i < capacity; i++) {
+            const angle = Number(qptAngle[i]);
+            if (!Number.isFinite(angle) || angle < 0) {
+                unknownAngleQueries.push(i);
+                continue;
+            }
+            const normalizedAngle = ((angle % 360) + 360) % 360;
+            const bucketIndex = Math.min(
+                MATCH_ANGLE_BUCKET_COUNT - 1,
+                Math.floor(normalizedAngle / MATCH_ANGLE_BUCKET_WIDTH)
+            );
+            queryGroups[bucketIndex].push(i);
+        }
+
+        const matchGroup = (queryIndices, trainBucket, enforceAngle) => {
+            if (!queryIndices.length || !trainBucket?.desMat || trainBucket.desMat.rows < 2) return;
+
+            const queryMat = new cv.Mat(queryIndices.length, descriptorSize, cv.CV_8UC1);
+            let matches = null;
+            try {
+                const rawSrc = desSub.data;
+                const rawDst = queryMat.data;
+                for (let row = 0; row < queryIndices.length; row++) {
+                    const queryIndex = queryIndices[row];
+                    const srcOffset = queryIndex * descriptorSize;
+                    rawDst.set(rawSrc.subarray(srcOffset, srcOffset + descriptorSize), row * descriptorSize);
+                }
+
+                matches = new cv.DMatchVectorVector();
+                bf.knnMatch(queryMat, trainBucket.desMat, matches, 2);
+                candidatePairs += queryIndices.length * trainBucket.desMat.rows;
+
+                const mSize = matches.size();
+                for (let i = 0; i < mSize; i++) {
+                    const row = matches.get(i);
+                    if (row.size() < 2) continue;
+                    const m = row.get(0);
+                    const r = row.get(1);
+                    if (m.distance >= 0.8 * r.distance) continue;
+
+                    loweN++;
+                    const queryIndex = queryIndices[m.queryIdx];
+                    const baseIndex = trainBucket.baseIndices
+                        ? trainBucket.baseIndices[m.trainIdx]
+                        : m.trainIdx;
+
+                    if (enforceAngle) {
+                        const queryAngle = qptAngle[queryIndex];
+                        const baseAngle = kpsBase[baseIndex].angle;
+                        if (queryAngle >= 0 && baseAngle >= 0
+                            && this._angleDiff(queryAngle, baseAngle) > MATCH_ANGLE_TOLERANCE) {
+                            continue;
+                        }
+                    }
+
+                    srcX[goodN] = qptX[queryIndex];
+                    srcY[goodN] = qptY[queryIndex];
+                    dstX[goodN] = kpsBase[baseIndex].x;
+                    dstY[goodN] = kpsBase[baseIndex].y;
+                    goodN++;
+                }
+            } finally {
+                if (matches) matches.delete();
+                queryMat.delete();
+            }
+        };
+
+        try {
+            bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
+            for (let bucketIndex = 0; bucketIndex < MATCH_ANGLE_BUCKET_COUNT; bucketIndex++) {
+                matchGroup(queryGroups[bucketIndex], baseBuckets[bucketIndex], true);
+            }
+            if (unknownAngleQueries.length) {
+                matchGroup(unknownAngleQueries, {
+                    desMat: desBase,
+                    baseIndices: null,
+                }, false);
+            }
+        } finally {
+            if (bf) bf.delete();
+        }
+
+        return {
+            srcX, srcY, dstX, dstY,
+            goodN,
+            loweN,
+            elapsedMs: performance.now() - startedAt,
+            candidatePairs,
+            passName: 'angle',
+        };
+    },
+
+    // ── 縮放 + 平移 RANSAC 估算器 ──────────────────────────────────────────
+    // 3-DOF：等比縮放 + 平移；已知輸入與底圖沒有旋轉差，因此固定 b = 0。
+    //   Transform: x' = a*x + tx
+    //              y' = a*y + ty
     //
     // 使用 Float32Array 平坦陣列取代 {x,y}[] 物件，減少 GC 壓力與記憶體跳躍
-    _estimateSimilarity(srcX, srcY, dstX, dstY, n, threshold = 5.0, maxIter = 500, minInliers = 1) {
+    _estimateScaleTranslation(srcX, srcY, dstX, dstY, n, threshold = 5.0, maxIter = 500, minInliers = 1) {
         if (n < minInliers) return null;
 
         const threshSq = threshold * threshold;
         let bestCount = 0;
-        let bestA = 1, bestB = 0, bestTx = 0, bestTy = 0;
+        let bestA = 1, bestTx = 0, bestTy = 0;
 
         for (let iter = 0; iter < maxIter; iter++) {
             // 隨機抽 2 個點對
@@ -51,20 +286,20 @@ const Matcher = {
             const dxM = dstX[i2] - dstX[i1];
             const dyM = dstY[i2] - dstY[i1];
             const a  = (dxM * dxS + dyM * dyS) / den;
-            const b  = (dyM * dxS - dxM * dyS) / den;
-            const tx = dstX[i1] - a * srcX[i1] + b * srcY[i1];
-            const ty = dstY[i1] - b * srcX[i1] - a * srcY[i1];
+            if (!Number.isFinite(a) || a <= 0) continue;
+            const tx = dstX[i1] - a * srcX[i1];
+            const ty = dstY[i1] - a * srcY[i1];
 
             // 計算內點數（不建立陣列，只計數）
             let cnt = 0;
             for (let i = 0; i < n; i++) {
-                const ex = a * srcX[i] - b * srcY[i] + tx - dstX[i];
-                const ey = b * srcX[i] + a * srcY[i] + ty - dstY[i];
+                const ex = a * srcX[i] + tx - dstX[i];
+                const ey = a * srcY[i] + ty - dstY[i];
                 if (ex * ex + ey * ey < threshSq) cnt++;
             }
             if (cnt > bestCount) {
                 bestCount = cnt;
-                bestA = a; bestB = b; bestTx = tx; bestTy = ty;
+                bestA = a; bestTx = tx; bestTy = ty;
                 // 已找到足夠好的解，提前結束
                 if (cnt > n * 0.8) break;
             }
@@ -76,8 +311,8 @@ const Matcher = {
         let mpx = 0, mpy = 0, mqx = 0, mqy = 0;
         const inlierIdx = [];
         for (let i = 0; i < n; i++) {
-            const ex = bestA * srcX[i] - bestB * srcY[i] + bestTx - dstX[i];
-            const ey = bestB * srcX[i] + bestA * srcY[i] + bestTy - dstY[i];
+            const ex = bestA * srcX[i] + bestTx - dstX[i];
+            const ey = bestA * srcY[i] + bestTy - dstY[i];
             if (ex * ex + ey * ey < threshSq) {
                 inlierIdx.push(i);
                 mpx += srcX[i]; mpy += srcY[i];
@@ -87,20 +322,20 @@ const Matcher = {
         const ni = inlierIdx.length;
         mpx /= ni; mpy /= ni; mqx /= ni; mqy /= ni;
 
-        let numA = 0, numB = 0, den2 = 0;
+        let numA = 0, den2 = 0;
         for (const i of inlierIdx) {
             const px_ = srcX[i] - mpx, py_ = srcY[i] - mpy;
             const qx_ = dstX[i] - mqx, qy_ = dstY[i] - mqy;
             numA += px_ * qx_ + py_ * qy_;
-            numB += px_ * qy_ - py_ * qx_;
             den2 += px_ * px_ + py_ * py_;
         }
         if (den2 < 1e-8) return null;
 
         const a  = numA / den2;
-        const b  = numB / den2;
-        const tx = mqx - a * mpx + b * mpy;
-        const ty = mqy - b * mpx - a * mpy;
+        if (!Number.isFinite(a) || a <= 0) return null;
+        const b  = 0;
+        const tx = mqx - a * mpx;
+        const ty = mqy - a * mpy;
 
         return { a, b, tx, ty, inliers: inlierIdx };
     },
@@ -122,7 +357,7 @@ const Matcher = {
 
         let subMat    = null, graySub   = null, emptyMask = null;
         let orb       = null, kpSub     = null, desSub    = null;
-        let bf        = null, matches   = null, alphaMask = null;
+        let alphaMask = null;
 
         try {
             const startTime = performance.now();
@@ -291,71 +526,76 @@ const Matcher = {
             const desBase = this._getDesBase();   // ⚠️ 快取物件，不可在 finally 刪除
             const kpsBase = orbFingerprint.kps;
 
-            // ── 5. BFMatcher knnMatch (k=2，供 Lowe ratio 使用) ───────────────
-            bf      = new cv.BFMatcher(cv.NORM_HAMMING, false);
-            matches = new cv.DMatchVectorVector();
-            const t5 = performance.now();
-            bf.knnMatch(desSub, desBase, matches, 2);
-            console.log(`[ORB] 5. knnMatch: ${Math.round(performance.now()-t5)}ms (${desSub.rows} query × ${desBase.rows} train)`);
+            // ── 5. 角度分桶 BFMatcher knnMatch（k=2，供 Lowe ratio 使用）──────
+            let ransacElapsedMs = 0;
+            const estimatePass = (matchResult) => {
+                if (matchResult.goodN < 4) return null;
+                const startedAt = performance.now();
+                const result = this._estimateScaleTranslation(
+                    matchResult.srcX.subarray(0, matchResult.goodN),
+                    matchResult.srcY.subarray(0, matchResult.goodN),
+                    matchResult.dstX.subarray(0, matchResult.goodN),
+                    matchResult.dstY.subarray(0, matchResult.goodN),
+                    matchResult.goodN, 5.0, 500
+                );
+                ransacElapsedMs += performance.now() - startedAt;
+                return result;
+            };
 
-            // knnMatch 完成，descriptor Mat 與 matcher 不再需要
-            desSub.delete(); desSub = null;
-            bf.delete(); bf = null;
+            let matchResult = this._collectAngleLimitedMatches(
+                desSub, fqptX, fqptY, fqptAngle, kpsBase
+            );
+            let simResult = estimatePass(matchResult);
+            const anglePairRatio = desSub.rows * desBase.rows > 0
+                ? matchResult.candidatePairs / (desSub.rows * desBase.rows)
+                : 1;
+            console.log(
+                `[ORB] 5. angle knnMatch: ${Math.round(matchResult.elapsedMs)}ms `
+                + `(${desSub.rows} query, ${(anglePairRatio * 100).toFixed(1)}% candidate pairs, `
+                + `Lowe=${matchResult.loweN}, good=${matchResult.goodN}, `
+                + `inliers=${simResult?.inliers.length || 0}, tolerance=±${MATCH_ANGLE_TOLERANCE}°)`
+            );
 
-            // ── 6. Lowe ratio test → 收集配對點座標（flat typed arrays）────────
-            const mSize = matches.size();
-            // 預先分配最大可能大小，避免動態 push
-            const srcX = new Float32Array(mSize);
-            const srcY = new Float32Array(mSize);
-            const dstX = new Float32Array(mSize);
-            const dstY = new Float32Array(mSize);
-            const ANGLE_THRESHOLD = 30;   // 容許的最大角度差（度）
-            let loweN = 0;   // 通過 Lowe ratio 的數量
-            let goodN = 0;   // 再通過角度過濾的數量
+            // 角度分桶找不到足夠穩定的結果時，退回原本的完整底圖搜尋，維持既有相容性。
+            if (!simResult || simResult.inliers.length < 10) {
+                const fullMatchResult = this._collectFullMatches(desSub, fqptX, fqptY, kpsBase);
+                const fullSimResult = estimatePass(fullMatchResult);
+                console.log(
+                    `[ORB] 5b. full knnMatch fallback: ${Math.round(fullMatchResult.elapsedMs)}ms `
+                    + `(${desSub.rows} query × ${desBase.rows} train, good=${fullMatchResult.goodN}, `
+                    + `inliers=${fullSimResult?.inliers.length || 0})`
+                );
 
-            const t6 = performance.now();
-            for (let i = 0; i < mSize; i++) {
-                const row = matches.get(i);
-                if (row.size() < 2) continue;
-                const m = row.get(0);
-                const r = row.get(1);
-                if (m.distance >= 0.8 * r.distance) continue;
-
-                loweN++;
-                const qi = m.queryIdx;
-                const ti = m.trainIdx;
-
-
-                srcX[goodN] = fqptX[qi];
-                srcY[goodN] = fqptY[qi];
-                dstX[goodN] = kpsBase[ti].x;
-                dstY[goodN] = kpsBase[ti].y;
-                goodN++;
+                const fullIsBetter = fullSimResult
+                    ? (
+                        !simResult
+                        || fullSimResult.inliers.length > simResult.inliers.length
+                        || (fullSimResult.inliers.length === simResult.inliers.length
+                            && fullMatchResult.goodN > matchResult.goodN)
+                    )
+                    : (!simResult && fullMatchResult.goodN > matchResult.goodN);
+                if (fullIsBetter) {
+                    matchResult = fullMatchResult;
+                    simResult = fullSimResult;
+                }
             }
-            console.log(`[ORB] 6. Lowe ratio: ${Math.round(performance.now()-t6)}ms  Lowe=${loweN} → 角度過濾後=${goodN} (閾値 ±${ANGLE_THRESHOLD}°)`);
 
-            // matches 已遍歷完畢，立即釋放（最大的 WASM 暫存物件之一）
-            matches.delete(); matches = null;
+            // 匹配結束後才釋放 query descriptors，讓不足時仍可執行完整 fallback。
+            desSub.delete(); desSub = null;
 
-            if (goodN < 4) {
+            const goodN = matchResult.goodN;
+            if (!simResult && goodN < 4) {
                 appState.statusText = UIText.STATUS.MATCHING_NOT_ENOUGH(goodN);
                 return;
             }
 
-            // ── 7. RANSAC 相似變換估算 ────────────────────────────────────────
-            // 等效 Python：cv2.estimateAffinePartial2D(RANSAC, reprojThreshold=5)
-            const t7 = performance.now();
-            const simResult = this._estimateSimilarity(
-                srcX.subarray(0, goodN), srcY.subarray(0, goodN),
-                dstX.subarray(0, goodN), dstY.subarray(0, goodN),
-                goodN, 5.0, 500
-            );
+            // ── 7. 固定零旋轉的縮放 + 平移 RANSAC ───────────────────────────
             if (!simResult) {
                 retryState.attemptInliers.push({ factor: _retryFactor, inliers: 0, ok: false });
                 const summary = retryState.attemptInliers
                     .map((x) => `${x.factor}x=${x.inliers}${x.ok ? '' : '(fail)'}`)
                     .join(', ');
-                console.log(`[ORB] 7. RANSAC: ${Math.round(performance.now()-t7)}ms (factor=${_retryFactor}x, inliers=0) | attempts: ${summary}`);
+                console.log(`[ORB] 7. RANSAC: ${Math.round(ransacElapsedMs)}ms (factor=${_retryFactor}x, inliers=0) | attempts: ${summary}`);
                 appState.statusText = UIText.STATUS.RANSAC_FAILED;
                 return;
             }
@@ -364,7 +604,7 @@ const Matcher = {
             const summary = retryState.attemptInliers
                 .map((x) => `${x.factor}x=${x.inliers}${x.ok ? '' : '(fail)'}`)
                 .join(', ');
-            console.log(`[ORB] 7. RANSAC: ${Math.round(performance.now()-t7)}ms (factor=${_retryFactor}x, inliers=${inliers.length}) | attempts: ${summary}`);
+            console.log(`[ORB] 7. RANSAC: ${Math.round(ransacElapsedMs)}ms (factor=${_retryFactor}x, inliers=${inliers.length}) | attempts: ${summary}`);
 
             // 記錄目前嘗試的候選結果，供「全部 <10 inlier」時採用最佳值
             const currentCandidate = {
@@ -482,8 +722,6 @@ const Matcher = {
             if (orb)       orb.delete();
             if (kpSub)     kpSub.delete();
             if (desSub)    desSub.delete();
-            if (bf)        bf.delete();
-            if (matches)   matches.delete();
             if (isRootCall) appState.isProcessing = false;
         }
     }
