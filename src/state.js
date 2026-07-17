@@ -3,7 +3,8 @@
 // Accessed by all other modules
 // ─────────────────────────────────────────────
 
-const SCALE_DOWN = 0.5;
+// Template-match workers are retained for the multithread implementation.
+// Automatic placement currently uses the ORB matcher on the main thread.
 const ENABLE_MATCH_WORKERS = false;
 
 const MAPS = {
@@ -42,10 +43,10 @@ function extractAlphaMask(sourceMat) {
     return alphaMask;
 }
 
-// ── OpenCV Mats ──
-let baseMapSize = null;   // { width, height } of the loaded base map—替代原 grayBase Mat，節省 ~43MB
+// ── Base-map metadata and OpenCV mask ──
+let baseMapSize = null;      // { width, height }; full grayscale Mat is no longer retained
 let baseAlphaMask = null;
-let orbFingerprint = null;   // parsed .orbf data for current map
+let orbFingerprint = null;   // parsed .orbf data for the current map
 
 // ── Canvas elements ──
 let outputCanvas = null;

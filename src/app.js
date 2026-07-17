@@ -389,7 +389,7 @@ function App() {
         },
 
         init() {
-            // ── Workers ──
+            // ── Retained multithread template-match workers ──
             if (window.Worker && ENABLE_MATCH_WORKERS) {
                 workers.forEach(w => w.terminate());
                 workers = [];
@@ -403,7 +403,7 @@ function App() {
             } else {
                 workers.forEach(w => w.terminate());
                 workers = [];
-                console.log('Worker matching disabled; running on main thread for testing.');
+                console.log('Template-match workers disabled; ORB matching runs on the main thread.');
             }
 
             // ── Canvas references ──

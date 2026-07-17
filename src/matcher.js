@@ -3,9 +3,9 @@
 // ORB feature-point matching using pre-computed .orbf fingerprints
 // ─────────────────────────────────────────────
 
-// ── desBase Mat 跨次快取 ──────────────────────────────────────────────────
-// FingerprintLoader.toOpenCV() 每次都要複製 768KB (24000×32B)，
-// 改為地圖不變時重用同一個 cv.Mat。
+// ── 底圖 descriptor 與角度 bucket 跨次快取 ───────────────────────────────
+// FingerprintLoader.toOpenCV() 會複製 n×32B descriptor；同一張地圖重用 Mat，
+// 切換 orbFingerprint 時才統一重建。
 let _cachedDesBaseMat = null;
 let _cachedFpRef      = null;   // 指向目前 orbFingerprint 物件的參考
 let _cachedAngleBuckets = null;
@@ -119,10 +119,7 @@ const Matcher = {
             return {
                 srcX, srcY, dstX, dstY,
                 goodN: 0,
-                loweN: 0,
                 elapsedMs: performance.now() - startedAt,
-                candidatePairs: 0,
-                passName: 'full',
             };
         }
 
@@ -155,10 +152,7 @@ const Matcher = {
         return {
             srcX, srcY, dstX, dstY,
             goodN,
-            loweN: goodN,
             elapsedMs: performance.now() - startedAt,
-            candidatePairs: desSub.rows * desBase.rows,
-            passName: 'full',
         };
     },
 
@@ -267,7 +261,6 @@ const Matcher = {
             loweN,
             elapsedMs: performance.now() - startedAt,
             candidatePairs,
-            passName: 'angle',
         };
     },
 
@@ -317,11 +310,12 @@ const Matcher = {
     },
 
     // ── 縮放 + 平移 RANSAC 估算器 ──────────────────────────────────────────
-    // 3-DOF：等比縮放 + 平移；已知輸入與底圖沒有旋轉差，因此固定 b = 0。
+    // 3-DOF：等比縮放 + 平移；已知輸入與底圖沒有旋轉差，因此不估算旋轉項。
     //   Transform: x' = a*x + tx
     //              y' = a*y + ty
     //
-    // 使用 Float32Array 平坦陣列取代 {x,y}[] 物件，減少 GC 壓力與記憶體跳躍
+    // 使用 Float32Array 平坦陣列，最多抽樣 RANSAC_MAX_ITERATIONS 次；
+    // 任一模型超過 80% 內點時提前結束，再以全部內點做閉合式最小二乘精煉。
     _estimateScaleTranslation(
         srcX, srcY, dstX, dstY, n,
         threshold = 5.0,
@@ -395,15 +389,13 @@ const Matcher = {
 
         const a  = numA / den2;
         if (!Number.isFinite(a) || a <= 0) return null;
-        const b  = 0;
         const tx = mqx - a * mpx;
         const ty = mqy - a * mpy;
 
-        return { a, b, tx, ty, inliers: inlierIdx };
+        return { a, tx, ty, inlierCount: ni };
     },
 
-    // _customLevel0Override is kept for API compatibility but ignored by ORB
-    async processScreenshotAfterCrop(appState, canvas, _customLevel0Override = null, _retryState = null, _retryFactor = 1.0) {
+    async processScreenshotAfterCrop(appState, canvas, _retryState = null, _retryFactor = 1.0) {
         if (appState.isProcessing && !_retryState) return;
         if (!baseMapSize) {
             appState.statusText = UIText.STATUS.BASE_MAP_NOT_LOADED;
@@ -432,7 +424,6 @@ const Matcher = {
                     : [0.5, 0.33, 0.25, 2.0];
                 return {
                     baseCanvas: canvas,
-                    srcPixels,
                     factors: [1.0, ...scaleOrder],
                     phase: 'angle',
                     phaseIndex: 0,
@@ -472,8 +463,8 @@ const Matcher = {
             subMat.delete(); subMat = null;
 
             // ── 2. ORB 偵測截圖特徵點 ─────────────────────────────────────────
-            // nfeatures=6000：提高初始偵測密度，由 step 3.5 grid dedup 攵至目標 2000 個
-            // scoreType/patchSize/fastThreshold 使用預設值（enum 未暴露於 OpenCV.js）
+            // nfeatures=6000：先提高偵測密度，再由 step 3.5 grid dedup 控制在約 4000 個以內。
+            // scoreType、patchSize 與 fastThreshold 使用 OpenCV.js 預設值。
             orb   = new cv.ORB(6000, 1.2, 8, 15, 0, 2);
             kpSub = new cv.KeyPointVector();
             desSub = new cv.Mat();
@@ -513,14 +504,12 @@ const Matcher = {
             kpSub.delete(); kpSub = null;
 
             // ── 3.5. 截圖特徵點空間去重（grid dedup）─────────────────
-            // 固定 20×20 格；每格最小 8×8px（圖片過小時自動用 8px）
-            // 每格上限 = min(5, ceil(2000 / nCells * 1.25))
-            //   ×1.25：預留餘裕，因為實際上不是每格都能達到上限
-            // 若原始特徵數 < 2000，直接跳過，不做任何過濾
+            // 每軸切成約 20 格且格寬／高至少 8px；原始特徵少於 2000 時不過濾。
+            // 其餘情況每格保留 response 較高者，上限為 ceil(4000 / nCells)，
+            // 在維持空間分布的同時將 descriptor 數量控制在約 4000 以內。
             const DEDUP_SKIP_THRESHOLD = 2000;
             const GRID_DIVISIONS    = 20;
             const GRID_MIN_PX       = 8;
-            const MAX_PER_CELL_CAP  = 5;
 
             const cellW  = Math.max(GRID_MIN_PX, Math.floor(canvas.width  / GRID_DIVISIONS));
             const cellH  = Math.max(GRID_MIN_PX, Math.floor(canvas.height / GRID_DIVISIONS));
@@ -587,7 +576,7 @@ const Matcher = {
 
             appState.statusText = UIText.STATUS.MATCHING_IN_PROGRESS(nKept);
 
-            // ── 4. 取得快取的 desBase Mat（避免每次重複複製 768KB）────────────
+            // ── 4. 取得快取的 desBase Mat（避免每次重複複製 n×32B）─────────────
             const desBase = this._getDesBase();   // ⚠️ 快取物件，不可在 finally 刪除
             const kpsBase = orbFingerprint.kps;
 
@@ -626,20 +615,20 @@ const Matcher = {
                     `[ORB] 5. angle knnMatch: ${Math.round(matchResult.elapsedMs)}ms `
                     + `(${desSub.rows} query, ${(anglePairRatio * 100).toFixed(1)}% candidate pairs, `
                     + `Lowe=${matchResult.loweN}, good=${matchResult.goodN}, `
-                    + `inliers=${simResult?.inliers.length || 0}, tolerance=±${MATCH_ANGLE_TOLERANCE}°)`
+                    + `inliers=${simResult?.inlierCount || 0}, tolerance=±${MATCH_ANGLE_TOLERANCE}°)`
                 );
             } else {
                 console.log(
                     `[ORB] 5. full knnMatch: ${Math.round(matchResult.elapsedMs)}ms `
                     + `(${desSub.rows} query × ${desBase.rows} train, good=${matchResult.goodN}, `
-                    + `inliers=${simResult?.inliers.length || 0})`
+                    + `inliers=${simResult?.inlierCount || 0})`
                 );
             }
 
             desSub.delete(); desSub = null;
 
             const goodN = matchResult.goodN;
-            const inlierCount = simResult?.inliers.length || 0;
+            const inlierCount = simResult?.inlierCount || 0;
             const failureReason = goodN < 4 ? 'matches' : 'ransac';
             this._recordScheduledAttempt(
                 retryState,
@@ -658,14 +647,12 @@ const Matcher = {
             // 記錄目前嘗試的候選結果，供所有 angle/full 縮放都失敗時採用最佳值。
             let currentCandidate = null;
             if (simResult) {
-                const { a, b, tx, ty, inliers } = simResult;
+                const { a, tx, ty, inlierCount: candidateInlierCount } = simResult;
                 currentCandidate = {
-                    phase: matchPhase,
                     factor: _retryFactor,
                     canvas,
-                    a, b, tx, ty,
-                    inliers,
-                    inliersCount: inliers.length,
+                    a, tx, ty,
+                    inliersCount: candidateInlierCount,
                     goodN,
                 };
                 if (!retryState.best
@@ -698,7 +685,6 @@ const Matcher = {
                     return await this.processScreenshotAfterCrop(
                         appState,
                         nextAttempt.canvas,
-                        _customLevel0Override,
                         retryState,
                         nextAttempt.factor
                     );
@@ -715,32 +701,21 @@ const Matcher = {
                 appState.statusText = UIText.STATUS.LOW_INLIERS_USE_BEST(chosen.inliersCount, chosen.factor);
             }
 
-            const chosenCanvas = chosen.canvas;
-            const chosenA = chosen.a;
-            const chosenB = chosen.b;
-            const chosenTx = chosen.tx;
-            const chosenTy = chosen.ty;
-            const chosenInliers = chosen.inliers;
+            const {
+                canvas: chosenCanvas,
+                a: scale,
+                tx: chosenTx,
+                ty: chosenTy,
+                inliersCount: chosenInlierCount,
+            } = chosen;
 
-            // ── 8. 將截圖 4 個角落映射至基底地圖座標 ─────────────────────────
-            //   [x'] = [a  -b  tx] [x]      ← 同 Python cv2.transform(corners, M)
-            //   [y']   [b   a  ty] [y]
+            // ── 8. 依零旋轉模型計算截圖在底圖上的軸對齊矩形 ──────────────────
+            // x' = scale*x + tx；y' = scale*y + ty
             const W = chosenCanvas.width, H = chosenCanvas.height;
-            const mappedCorners = [[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => [
-                chosenA * x - chosenB * y + chosenTx,
-                chosenB * x + chosenA * y + chosenTy,
-            ]);
-
-            const xs = mappedCorners.map(p => p[0]);
-            const ys = mappedCorners.map(p => p[1]);
-
-            // scale = sqrt(a² + b²)  ← 同 Python sqrt(|det(M[:,:2])|)
-            const scale  = Math.sqrt(chosenA * chosenA + chosenB * chosenB);
             const finalW = Math.round(W * scale);
             const finalH = Math.round(H * scale);
-
-            const minX = Math.round(Math.min(...xs));
-            const minY = Math.round(Math.min(...ys));
+            const minX = Math.round(chosenTx);
+            const minY = Math.round(chosenTy);
 
             const baseSize = CanvasManager.getBaseDimensions() || { width: baseMapSize.width, height: baseMapSize.height };
             const clampedX = Math.max(0, minX);
@@ -771,9 +746,9 @@ const Matcher = {
             );
 
             const elapsed = Math.round(performance.now() - startTime);
-            console.log(`[ORB] Final inliers: ${chosenInliers.length}`);
+            console.log(`[ORB] Final inliers: ${chosenInlierCount}`);
             console.log(`[ORB] ── total: ${elapsed}ms ──`);
-            appState.statusText = UIText.STATUS.MATCH_SUCCESS(elapsed, chosenInliers.length, scale);
+            appState.statusText = UIText.STATUS.MATCH_SUCCESS(elapsed, chosenInlierCount, scale);
             appState.hasOutput = true;
             CanvasManager.resetView(appState.showOriginalBase);
 

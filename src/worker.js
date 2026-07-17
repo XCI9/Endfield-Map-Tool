@@ -1,7 +1,7 @@
 
-// Worker for OpenCV Template Matching
+// Retained multithread worker for the OpenCV template-match pipeline.
 
-// Load OpenCV.js and Shared Logic
+// Load OpenCV.js and the shared template-match implementation.
 try {
     importScripts('../assets/vendor/opencv.js');
     importScripts('match-logic.js');

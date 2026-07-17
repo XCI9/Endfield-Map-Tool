@@ -15,33 +15,6 @@ const MapLoader = {
         }
     },
 
-    fillTransparentWithBlack(grayMat, alphaMask) {
-        const grayData = grayMat.data;
-        const alphaData = alphaMask.data;
-        for (let i = 0; i < alphaData.length; i++) {
-            if (alphaData[i] === 0) {
-                grayData[i] = 0;
-            }
-        }
-    },
-
-    processGrayBase(sourceMat, alphaMask = null) {
-        const gray = new cv.Mat();
-        const ownAlphaMask = !alphaMask;
-        const resolvedAlphaMask = alphaMask || extractAlphaMask(sourceMat);
-
-        try {
-            cv.cvtColor(sourceMat, gray, cv.COLOR_RGBA2GRAY);
-            this.fillTransparentWithBlack(gray, resolvedAlphaMask);
-            return gray;
-        } catch (error) {
-            gray.delete();
-            throw new Error(`processGrayBase failed: ${error?.message || error}`);
-        } finally {
-            if (ownAlphaMask) resolvedAlphaMask.delete();
-        }
-    },
-
     async loadBaseMapFromAsset(appState, mapKey) {
         const mapInfo = MAPS[mapKey] || MAPS.map02;
         appState.statusText = UIText.STATUS.BASE_MAP_LOADING(mapKey);
@@ -90,7 +63,7 @@ const MapLoader = {
                 alphaMask = extractAlphaMask(rgbaBaseMat);
                 nextBaseAlphaMask = alphaMask;
                 alphaMask = null;
-                // grayBase Mat 已不再需要（ORB 改用 .orbf），僅儲存尺寸
+                // ORB descriptors 由 .orbf 載入；底圖只保留尺寸與 alpha mask。
             } catch (error) {
                 throw new Error(`prepare base mats failed: ${error?.message || error}`);
             } finally {
@@ -116,7 +89,7 @@ const MapLoader = {
             CanvasManager.renderView(appState.showOriginalBase);
             ExportHandler.updatePreview(appState);
 
-            // Load ORB fingerprint for the selected map
+            // Load the ORB fingerprint for the selected map.
             orbFingerprint = null;
             if (mapInfo.orbf) {
                 appState.statusText = UIText.STATUS.ORB_LOADING;
