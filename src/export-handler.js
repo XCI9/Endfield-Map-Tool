@@ -7,6 +7,21 @@ const EXPORT_SCAN_CHUNK_ROWS = 256;
 const EXPORT_SCAN_PAINT_EVERY_CHUNKS = 4;
 
 const ExportHandler = {
+    _releaseCanvas(canvas) {
+        if (!canvas) return;
+        canvas.width = 1;
+        canvas.height = 1;
+    },
+
+    releasePreviewResources(appState) {
+        appState.exportBlob = null;
+        appState.previewInfo = { width: 0, height: 0, size: '' };
+        appState.exportProgress = 0;
+        appState.exportProgressIndeterminate = false;
+        appState.statusText = '';
+        this._releaseCanvas(previewCanvas);
+    },
+
     async _findOpaqueBounds(appState, ctx, width, height) {
         let top = -1;
         let bottom = -1;
@@ -69,16 +84,17 @@ const ExportHandler = {
         // 若 previewIncludeBase 與 showOriginalBase 一致，baseCanvas 已是目標狀態，可直接使用；
         // 否則需臨時重建（例如：顯示模式只看截圖，但匯出時要包含基底地圖）
         let sourceCanvas;
+        let temporarySourceCanvas = null;
         if (appState.previewIncludeBase === appState.showOriginalBase &&
             CanvasManager.hasCanvasContent(baseCanvas)) {
             sourceCanvas = baseCanvas;
         } else {
             const dims = CanvasManager.getBaseDimensions();
             if (!dims) return;
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = dims.width;
-            tempCanvas.height = dims.height;
-            const tempCtx = tempCanvas.getContext('2d');
+            temporarySourceCanvas = document.createElement('canvas');
+            temporarySourceCanvas.width = dims.width;
+            temporarySourceCanvas.height = dims.height;
+            const tempCtx = temporarySourceCanvas.getContext('2d');
             if (appState.previewIncludeBase && CanvasManager.hasCanvasContent(originalBaseCanvas)) {
                 tempCtx.drawImage(originalBaseCanvas, 0, 0);
             }
@@ -89,23 +105,27 @@ const ExportHandler = {
                     item.rect.x, item.rect.y, item.rect.width, item.rect.height
                 );
             }
-            sourceCanvas = tempCanvas;
+            sourceCanvas = temporarySourceCanvas;
         }
         if (!sourceCanvas) return;
 
-        if (appState.exportBlob) appState.exportBlob = null;
-        appState.previewInfo = { width: 0, height: 0, size: '' };
+        try {
+            if (appState.exportBlob) appState.exportBlob = null;
+            appState.previewInfo = { width: 0, height: 0, size: '' };
 
-        if (previewCropRect) {
-            previewCanvas.width = previewCropRect.width;
-            previewCanvas.height = previewCropRect.height;
-            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-            previewCtx.drawImage(sourceCanvas, previewCropRect.x, previewCropRect.y, previewCropRect.width, previewCropRect.height, 0, 0, previewCropRect.width, previewCropRect.height);
-        } else {
-            previewCanvas.width = sourceCanvas.width;
-            previewCanvas.height = sourceCanvas.height;
-            previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-            previewCtx.drawImage(sourceCanvas, 0, 0);
+            if (previewCropRect) {
+                previewCanvas.width = previewCropRect.width;
+                previewCanvas.height = previewCropRect.height;
+                previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                previewCtx.drawImage(sourceCanvas, previewCropRect.x, previewCropRect.y, previewCropRect.width, previewCropRect.height, 0, 0, previewCropRect.width, previewCropRect.height);
+            } else {
+                previewCanvas.width = sourceCanvas.width;
+                previewCanvas.height = sourceCanvas.height;
+                previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                previewCtx.drawImage(sourceCanvas, 0, 0);
+            }
+        } finally {
+            this._releaseCanvas(temporarySourceCanvas);
         }
     },
 
@@ -116,6 +136,8 @@ const ExportHandler = {
     },
 
     closePreviewModal(appState) {
+        if (appState.isExporting) return;
+        this.releasePreviewResources(appState);
         appState.showPreviewModal = false;
     },
 
@@ -204,10 +226,7 @@ const ExportHandler = {
         } finally {
             appState.exportProgressIndeterminate = false;
             appState.isExporting = false;
-            if (tempCanvas) {
-                tempCanvas.width = 1;
-                tempCanvas.height = 1;
-            }
+            this._releaseCanvas(tempCanvas);
         }
     },
 
@@ -218,8 +237,12 @@ const ExportHandler = {
         const link = document.createElement('a');
         link.download = `full_map_export_${Date.now()}.${ext}`;
         link.href = url;
-        link.click();
-        URL.revokeObjectURL(url);
-        appState.showPreviewModal = false;
+        try {
+            link.click();
+        } finally {
+            // Give the browser one event-loop turn to start consuming the object URL.
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+            this.closePreviewModal(appState);
+        }
     }
 };
