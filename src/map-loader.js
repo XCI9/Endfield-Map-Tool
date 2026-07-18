@@ -53,22 +53,25 @@ const MapLoader = {
             // (disabled state) before the event loop freezes.
             await yieldToUI();
 
-            let rgbaBaseMat = null;
-            try {
-                rgbaBaseMat = cv.imread(canvas);
-                if (!isMatAvailable(rgbaBaseMat)) {
-                    throw new Error('cv.imread returned an invalid Mat');
-                }
+            // ORB 配對不使用全圖 alpha mask，避免 cv.imread() 為超大底圖配置
+            // RGBA Mat。只有啟用保留的 multithread template-match 路徑時才建立。
+            if (ENABLE_MATCH_WORKERS) {
+                let rgbaBaseMat = null;
+                try {
+                    rgbaBaseMat = cv.imread(canvas);
+                    if (!isMatAvailable(rgbaBaseMat)) {
+                        throw new Error('cv.imread returned an invalid Mat');
+                    }
 
-                alphaMask = extractAlphaMask(rgbaBaseMat);
-                nextBaseAlphaMask = alphaMask;
-                alphaMask = null;
-                // ORB descriptors 由 .orbf 載入；底圖只保留尺寸與 alpha mask。
-            } catch (error) {
-                throw new Error(`prepare base mats failed: ${error?.message || error}`);
-            } finally {
-                rgbaBaseMat = safeDeleteMat(rgbaBaseMat);
-                alphaMask = safeDeleteMat(alphaMask);
+                    alphaMask = extractAlphaMask(rgbaBaseMat);
+                    nextBaseAlphaMask = alphaMask;
+                    alphaMask = null;
+                } catch (error) {
+                    throw new Error(`prepare base alpha mask failed: ${error?.message || error}`);
+                } finally {
+                    rgbaBaseMat = safeDeleteMat(rgbaBaseMat);
+                    alphaMask = safeDeleteMat(alphaMask);
+                }
             }
 
             baseAlphaMask = safeDeleteMat(baseAlphaMask);

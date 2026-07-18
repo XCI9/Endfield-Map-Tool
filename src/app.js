@@ -278,6 +278,7 @@ function App() {
         isLoadingBaseMap: false,
         isExporting: false,
         exportProgress: 0,
+        exportProgressIndeterminate: false,
         exportBlob: null,
         exportFormat: 'image/webp',
         exportQuality: 0.95,

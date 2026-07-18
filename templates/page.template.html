@@ -212,9 +212,11 @@
                     <div class="export-status" v-if="isExporting">
                          <span class="status-text">{{ statusText }}</span>
                          <div class="progress-track">
-                             <div class="progress-fill" :style="{ width: exportProgress + '%' }"></div>
+                             <div class="progress-fill"
+                                  :class="{ indeterminate: exportProgressIndeterminate }"
+                                  :style="exportProgressIndeterminate ? {} : { width: exportProgress + '%' }"></div>
                          </div>
-                         <span class="progress-text">{{ exportProgress }}%</span>
+                         <span class="progress-text" v-if="!exportProgressIndeterminate">{{ exportProgress }}%</span>
                     </div>
                     
                     <div class="export-result" v-if="exportBlob">
