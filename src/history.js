@@ -5,17 +5,6 @@
 
 const History = {
     addRecord(appState, originalCanvas, resizedCanvas, rect, scale, wasBoundaryEnhanced = false) {
-        CanvasManager.syncBaseCanvasSizes(); 
-        
-        // Render onto base canvas immediately
-        if (baseCanvas && baseCtx) {
-            baseCtx.drawImage(
-                resizedCanvas, 
-                0, 0, rect.width, rect.height, 
-                rect.x, rect.y, rect.width, rect.height
-            );
-        }
-
         // Clone the original canvas for rematching capability
         const savedOriginalCanvas = document.createElement('canvas');
         savedOriginalCanvas.width = originalCanvas.width;
@@ -29,7 +18,8 @@ const History = {
             scale: scale,
             wasBoundaryEnhanced: !!wasBoundaryEnhanced,
         });
-        
+
+        CanvasManager.rebuildHistoryCanvas(appState);
         appState.canUndo = true;
         CanvasManager.renderView(appState.showOriginalBase);
         ExportHandler.updatePreview(appState);
@@ -42,10 +32,7 @@ const History = {
         appState.history.pop();
         appState.canUndo = appState.history.length > 0;
 
-        // Restore displayed base canvas from the pristine original base canvas
-        if (!originalBaseCanvas || !baseCanvas || !baseCtx) return;
-        CanvasManager.syncBaseCanvasSizes();
-        CanvasManager.rebuildCompositeCanvas(appState);
+        CanvasManager.rebuildHistoryCanvas(appState);
 
         CanvasManager.renderView(appState.showOriginalBase);
         ExportHandler.updatePreview(appState);

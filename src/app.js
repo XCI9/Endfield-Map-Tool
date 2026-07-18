@@ -412,8 +412,8 @@ function App() {
             outputCtx = outputCanvas.getContext('2d');
             baseCanvas = document.getElementById('baseCanvas');
             baseCtx = baseCanvas.getContext('2d');
-            originalBaseCanvas = document.getElementById('originalBaseCanvas');
-            originalBaseCtx = originalBaseCanvas.getContext('2d');
+            historyCanvas = document.getElementById('historyCanvas');
+            historyCtx = historyCanvas.getContext('2d');
             previewCanvas = document.getElementById('previewCanvas');
             previewCtx = previewCanvas.getContext('2d');
             dropZoneEl = document.getElementById('dropZone');
@@ -739,7 +739,6 @@ function App() {
 
         // ── View toggles ──
         onOriginalToggle() {
-            CanvasManager.rebuildCompositeCanvas(this);
             CanvasManager.renderView(this.showOriginalBase);
         },
         onPreviewBaseToggle()       { ExportHandler.updatePreview(this); },

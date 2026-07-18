@@ -80,53 +80,35 @@ const ExportHandler = {
 
     async updatePreview(appState) {
         if (!previewCanvas || !previewCtx) return;
+        const dims = CanvasManager.getBaseDimensions();
+        if (!dims) return;
 
-        // 若 previewIncludeBase 與 showOriginalBase 一致，baseCanvas 已是目標狀態，可直接使用；
-        // 否則需臨時重建（例如：顯示模式只看截圖，但匯出時要包含基底地圖）
-        let sourceCanvas;
-        let temporarySourceCanvas = null;
-        if (appState.previewIncludeBase === appState.showOriginalBase &&
-            CanvasManager.hasCanvasContent(baseCanvas)) {
-            sourceCanvas = baseCanvas;
-        } else {
-            const dims = CanvasManager.getBaseDimensions();
-            if (!dims) return;
-            temporarySourceCanvas = document.createElement('canvas');
-            temporarySourceCanvas.width = dims.width;
-            temporarySourceCanvas.height = dims.height;
-            const tempCtx = temporarySourceCanvas.getContext('2d');
-            if (appState.previewIncludeBase && CanvasManager.hasCanvasContent(originalBaseCanvas)) {
-                tempCtx.drawImage(originalBaseCanvas, 0, 0);
-            }
-            for (const item of appState.history) {
-                tempCtx.drawImage(
-                    item.canvas,
-                    0, 0, item.rect.width, item.rect.height,
-                    item.rect.x, item.rect.y, item.rect.width, item.rect.height
-                );
-            }
-            sourceCanvas = temporarySourceCanvas;
-        }
-        if (!sourceCanvas) return;
+        const sourceX = previewCropRect
+            ? Math.max(0, Math.min(dims.width - 1, Math.floor(previewCropRect.x)))
+            : 0;
+        const sourceY = previewCropRect
+            ? Math.max(0, Math.min(dims.height - 1, Math.floor(previewCropRect.y)))
+            : 0;
+        const sourceRight = previewCropRect
+            ? Math.min(dims.width, Math.ceil(previewCropRect.x + previewCropRect.width))
+            : dims.width;
+        const sourceBottom = previewCropRect
+            ? Math.min(dims.height, Math.ceil(previewCropRect.y + previewCropRect.height))
+            : dims.height;
+        const sourceWidth = sourceRight - sourceX;
+        const sourceHeight = sourceBottom - sourceY;
+        if (sourceWidth < 1 || sourceHeight < 1) return;
 
-        try {
-            if (appState.exportBlob) appState.exportBlob = null;
-            appState.previewInfo = { width: 0, height: 0, size: '' };
+        if (appState.exportBlob) appState.exportBlob = null;
+        appState.previewInfo = { width: 0, height: 0, size: '' };
 
-            if (previewCropRect) {
-                previewCanvas.width = previewCropRect.width;
-                previewCanvas.height = previewCropRect.height;
-                previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-                previewCtx.drawImage(sourceCanvas, previewCropRect.x, previewCropRect.y, previewCropRect.width, previewCropRect.height, 0, 0, previewCropRect.width, previewCropRect.height);
-            } else {
-                previewCanvas.width = sourceCanvas.width;
-                previewCanvas.height = sourceCanvas.height;
-                previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-                previewCtx.drawImage(sourceCanvas, 0, 0);
-            }
-        } finally {
-            this._releaseCanvas(temporarySourceCanvas);
-        }
+        previewCanvas.width = sourceWidth;
+        previewCanvas.height = sourceHeight;
+        previewCtx.clearRect(0, 0, sourceWidth, sourceHeight);
+        previewCtx.save();
+        previewCtx.translate(-sourceX, -sourceY);
+        CanvasManager.drawMapLayers(previewCtx, appState.previewIncludeBase);
+        previewCtx.restore();
     },
 
     openPreviewModal(appState) {

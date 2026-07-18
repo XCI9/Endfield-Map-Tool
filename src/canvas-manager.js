@@ -14,9 +14,6 @@ const CanvasManager = {
         if (this.hasCanvasContent(baseCanvas)) {
             return { width: baseCanvas.width, height: baseCanvas.height };
         }
-        if (this.hasCanvasContent(originalBaseCanvas)) {
-            return { width: originalBaseCanvas.width, height: originalBaseCanvas.height };
-        }
         return null;
     },
 
@@ -24,35 +21,77 @@ const CanvasManager = {
         return !!(canvas && canvas.width > 0 && canvas.height > 0);
     },
 
-    getViewSourceCanvas() {
-        if (this.hasCanvasContent(baseCanvas)) return baseCanvas;
-        if (this.hasCanvasContent(originalBaseCanvas)) return originalBaseCanvas;
-        return null;
+    _getHistoryBounds(history) {
+        const dims = this.getBaseDimensions();
+        if (!dims || !history?.length) return null;
+
+        let left = dims.width;
+        let top = dims.height;
+        let right = 0;
+        let bottom = 0;
+
+        for (const item of history) {
+            const rect = item?.rect;
+            if (!rect || !Number.isFinite(rect.x) || !Number.isFinite(rect.y) ||
+                !Number.isFinite(rect.width) || !Number.isFinite(rect.height) ||
+                rect.width <= 0 || rect.height <= 0) {
+                continue;
+            }
+
+            const itemLeft = Math.max(0, Math.floor(rect.x));
+            const itemTop = Math.max(0, Math.floor(rect.y));
+            const itemRight = Math.min(dims.width, Math.ceil(rect.x + rect.width));
+            const itemBottom = Math.min(dims.height, Math.ceil(rect.y + rect.height));
+            if (itemRight <= itemLeft || itemBottom <= itemTop) continue;
+
+            left = Math.min(left, itemLeft);
+            top = Math.min(top, itemTop);
+            right = Math.max(right, itemRight);
+            bottom = Math.max(bottom, itemBottom);
+        }
+
+        if (right <= left || bottom <= top) return null;
+        return { x: left, y: top, width: right - left, height: bottom - top };
     },
 
-    // 根據 showOriginalBase 與歷史記錄從頭重建 baseCanvas
-    rebuildCompositeCanvas(appState) {
-        if (!baseCanvas || !baseCtx) return;
-        const dims = this.getBaseDimensions();
-        if (!dims) return;
-        if (baseCanvas.width !== dims.width || baseCanvas.height !== dims.height) {
-            baseCanvas.width = dims.width;
-            baseCanvas.height = dims.height;
+    releaseHistoryCanvas() {
+        historyCanvasBounds = null;
+        if (!historyCanvas) return;
+        historyCanvas.width = 1;
+        historyCanvas.height = 1;
+    },
+
+    // 將所有已確認圖片預先合成到其聯集矩形，而不是配置完整底圖大小的 Canvas。
+    rebuildHistoryCanvas(appState) {
+        if (!historyCanvas) return;
+        const bounds = this._getHistoryBounds(appState.history);
+        if (!bounds) {
+            this.releaseHistoryCanvas();
+            return;
         }
-        baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
-        if (appState.showOriginalBase && this.hasCanvasContent(originalBaseCanvas)) {
-            baseCtx.drawImage(originalBaseCanvas, 0, 0);
+
+        if (historyCanvas.width !== bounds.width || historyCanvas.height !== bounds.height) {
+            historyCanvas.width = bounds.width;
+            historyCanvas.height = bounds.height;
+        } else {
+            historyCtx.clearRect(0, 0, historyCanvas.width, historyCanvas.height);
         }
+
+        historyCanvasBounds = bounds;
+        historyCtx.imageSmoothingEnabled = true;
+        historyCtx.imageSmoothingQuality = 'high';
         for (const item of appState.history) {
-            baseCtx.drawImage(
+            if (!item?.canvas || !item.rect) continue;
+            historyCtx.drawImage(
                 item.canvas,
                 0, 0, item.rect.width, item.rect.height,
-                item.rect.x, item.rect.y, item.rect.width, item.rect.height
+                item.rect.x - bounds.x, item.rect.y - bounds.y,
+                item.rect.width, item.rect.height
             );
         }
     },
 
-    syncBaseCanvasSizes() {
+    syncBaseCanvasSize() {
         const dims = this.getBaseDimensions();
         if (!dims) return;
         if (baseCanvas) {
@@ -61,27 +100,28 @@ const CanvasManager = {
                 baseCanvas.height = dims.height;
             }
         }
-        if (originalBaseCanvas) {
-            if (originalBaseCanvas.width !== dims.width || originalBaseCanvas.height !== dims.height) {
-                originalBaseCanvas.width = dims.width;
-                originalBaseCanvas.height = dims.height;
-            }
+    },
+
+    drawMapLayers(ctx, includeBase) {
+        if (!ctx) return;
+        if (includeBase && this.hasCanvasContent(baseCanvas)) {
+            ctx.drawImage(baseCanvas, 0, 0);
+        }
+        if (historyCanvasBounds && this.hasCanvasContent(historyCanvas)) {
+            ctx.drawImage(historyCanvas, historyCanvasBounds.x, historyCanvasBounds.y);
         }
     },
 
     renderView(showOriginalBase) {
-        const sourceCanvas = this.getViewSourceCanvas();
-        if (!outputCanvas || !sourceCanvas || !outputCtx) return;
+        const dims = this.getBaseDimensions();
+        if (!outputCanvas || !dims || !outputCtx) return;
         this.updateMinScale(showOriginalBase);
         this.clampViewOffset(showOriginalBase);
         outputCtx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
         outputCtx.save();
         outputCtx.translate(viewOffset.x, viewOffset.y);
         outputCtx.scale(viewScale, viewScale);
-        outputCtx.drawImage(sourceCanvas, 0, 0);
-        // baseCanvas 已由 rebuildCompositeCanvas 根據 showOriginalBase 重建：
-        // showOriginalBase=true  → originalBaseCanvas + 所有截圖
-        // showOriginalBase=false → 僅截圖（透明底）
+        this.drawMapLayers(outputCtx, showOriginalBase);
         outputCtx.restore();
         if (window.ManualPlacementHandler?.renderOverlay && window.__appState?.manualPlacementActive) {
             window.ManualPlacementHandler.renderOverlay(window.__appState);
@@ -89,12 +129,12 @@ const CanvasManager = {
     },
 
     updateMinScale(showOriginalBase) {
-        const sourceCanvas = this.getViewSourceCanvas();
-        if (!outputCanvas || !sourceCanvas) return;
+        const dims = this.getBaseDimensions();
+        if (!outputCanvas || !dims) return;
         const viewWidth = outputCanvas.width || outputCanvas.clientWidth;
         const viewHeight = outputCanvas.height || outputCanvas.clientHeight;
-        const canvasWidth = sourceCanvas.width || sourceCanvas.clientWidth;
-        const canvasHeight = sourceCanvas.height || sourceCanvas.clientHeight;
+        const canvasWidth = dims.width;
+        const canvasHeight = dims.height;
         if (!canvasWidth || !canvasHeight) return;
         const fitX = viewWidth / canvasWidth;
         const fitY = viewHeight / canvasHeight;
@@ -112,12 +152,12 @@ const CanvasManager = {
     },
 
     clampViewOffset(showOriginalBase) {
-        const sourceCanvas = this.getViewSourceCanvas();
-        if (!outputCanvas || !sourceCanvas) return;
+        const dims = this.getBaseDimensions();
+        if (!outputCanvas || !dims) return;
         const viewWidth = outputCanvas.width || outputCanvas.clientWidth;
         const viewHeight = outputCanvas.height || outputCanvas.clientHeight;
-        const canvasWidth = sourceCanvas.width || sourceCanvas.clientWidth;
-        const canvasHeight = sourceCanvas.height || sourceCanvas.clientHeight;
+        const canvasWidth = dims.width;
+        const canvasHeight = dims.height;
         if (!canvasWidth || !canvasHeight) return;
 
         const scaledWidth = canvasWidth * viewScale;

@@ -147,7 +147,7 @@
         <main class="content">
             <div id="dropZone" class="drop-zone" :class="{ 'is-dragging': isDragging }">
                 <canvas id="baseCanvas" class="offscreen"></canvas>
-                <canvas id="originalBaseCanvas" class="offscreen"></canvas>
+                <canvas id="historyCanvas" class="offscreen"></canvas>
                 <canvas id="outputCanvas"></canvas>
                 
                 <div class="drop-overlay loading-overlay" v-if="isLoadingBaseMap">

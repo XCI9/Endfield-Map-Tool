@@ -4,14 +4,10 @@
 // ─────────────────────────────────────────────
 
 const MapLoader = {
-    drawBaseCanvasesFromSource(sourceCanvas) {
+    drawBaseCanvasFromSource(source) {
         if (baseCanvas && baseCtx) {
             baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
-            baseCtx.drawImage(sourceCanvas, 0, 0, baseCanvas.width, baseCanvas.height);
-        }
-        if (originalBaseCanvas && originalBaseCtx) {
-            originalBaseCtx.clearRect(0, 0, originalBaseCanvas.width, originalBaseCanvas.height);
-            originalBaseCtx.drawImage(sourceCanvas, 0, 0, originalBaseCanvas.width, originalBaseCanvas.height);
+            baseCtx.drawImage(source, 0, 0, baseCanvas.width, baseCanvas.height);
         }
     },
 
@@ -42,12 +38,15 @@ const MapLoader = {
 
         let nextBaseAlphaMask = null;
         let alphaMask = null;
+        let workerSourceCanvas = null;
 
         try {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            canvas.getContext('2d').drawImage(img, 0, 0);
+            if (ENABLE_MATCH_WORKERS) {
+                workerSourceCanvas = document.createElement('canvas');
+                workerSourceCanvas.width = img.width;
+                workerSourceCanvas.height = img.height;
+                workerSourceCanvas.getContext('2d').drawImage(img, 0, 0);
+            }
 
             // Yield before heavy sync work so the DOM can reflect isLoadingBaseMap=true
             // (disabled state) before the event loop freezes.
@@ -58,7 +57,7 @@ const MapLoader = {
             if (ENABLE_MATCH_WORKERS) {
                 let rgbaBaseMat = null;
                 try {
-                    rgbaBaseMat = cv.imread(canvas);
+                    rgbaBaseMat = cv.imread(workerSourceCanvas);
                     if (!isMatAvailable(rgbaBaseMat)) {
                         throw new Error('cv.imread returned an invalid Mat');
                     }
@@ -80,13 +79,12 @@ const MapLoader = {
             baseAlphaMask = nextBaseAlphaMask;
             nextBaseAlphaMask = null;
 
-            CanvasManager.syncBaseCanvasSizes();
-            this.drawBaseCanvasesFromSource(canvas);
-
             appState.history = [];
             appState.canUndo = false;
+            CanvasManager.releaseHistoryCanvas();
 
-            CanvasManager.rebuildCompositeCanvas(appState);
+            CanvasManager.syncBaseCanvasSize();
+            this.drawBaseCanvasFromSource(img);
             appState.hasOutput = true;
             CanvasManager.resetView(appState.showOriginalBase);
             CanvasManager.renderView(appState.showOriginalBase);
@@ -121,6 +119,10 @@ const MapLoader = {
             });
             appState.statusText = UIText.STATUS.BASE_MAP_PROCESS_FAILED;
         } finally {
+            if (workerSourceCanvas) {
+                workerSourceCanvas.width = 1;
+                workerSourceCanvas.height = 1;
+            }
             appState.isLoadingBaseMap = false;
         }
     },
