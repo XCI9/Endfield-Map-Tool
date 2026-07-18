@@ -22,6 +22,49 @@ const ExportHandler = {
         this._releaseCanvas(previewCanvas);
     },
 
+    _releaseMapLayersForExport(appState) {
+        if (appState.exportMapLayersReleased) return;
+        CanvasManager.releaseBaseCanvas();
+        CanvasManager.releaseHistoryCanvas();
+        appState.exportMapLayersReleased = true;
+    },
+
+    async _restoreMapLayers(appState) {
+        if (!appState.exportMapLayersReleased) return { ok: true, error: null };
+
+        const previousIsExporting = appState.isExporting;
+        const previousIndeterminate = appState.exportProgressIndeterminate;
+        const previousIsLoadingBaseMap = appState.isLoadingBaseMap;
+        appState.isExporting = true;
+        appState.exportProgressIndeterminate = true;
+        appState.isLoadingBaseMap = true;
+        appState.statusText = UIText.STATUS.BASE_MAP_LOADING(appState.currentMapKey);
+
+        try {
+            await MapLoader.restoreMapLayers(appState);
+            appState.exportMapLayersReleased = false;
+            return { ok: true, error: null };
+        } catch (error) {
+            console.error('Failed to restore map layers after export', error);
+            appState.statusText = UIText.STATUS.EXPORT_FAILED(error?.message || error);
+            return { ok: false, error };
+        } finally {
+            appState.isExporting = previousIsExporting;
+            appState.exportProgressIndeterminate = previousIndeterminate;
+            appState.isLoadingBaseMap = previousIsLoadingBaseMap;
+        }
+    },
+
+    _startCanvasEncoding(canvas, type, quality) {
+        return new Promise((resolve, reject) => {
+            try {
+                canvas.toBlob(resolve, type, quality);
+            } catch (error) {
+                reject(error);
+            }
+        });
+    },
+
     async _findOpaqueBounds(appState, ctx, width, height) {
         let top = -1;
         let bottom = -1;
@@ -80,6 +123,7 @@ const ExportHandler = {
 
     async updatePreview(appState) {
         if (!previewCanvas || !previewCtx) return;
+        if (appState.exportMapLayersReleased) return;
         const dims = CanvasManager.getBaseDimensions();
         if (!dims) return;
 
@@ -117,10 +161,22 @@ const ExportHandler = {
         this.updatePreview(appState);
     },
 
-    closePreviewModal(appState) {
+    async closePreviewModal(appState) {
         if (appState.isExporting) return;
+        const restoration = await this._restoreMapLayers(appState);
+        if (!restoration.ok) return;
         this.releasePreviewResources(appState);
         appState.showPreviewModal = false;
+    },
+
+    async resetExportResult(appState) {
+        if (appState.isExporting) return;
+        const restoration = await this._restoreMapLayers(appState);
+        if (!restoration.ok) return;
+        appState.exportBlob = null;
+        appState.previewInfo = { width: 0, height: 0, size: '' };
+        await this.updatePreview(appState);
+        appState.statusText = '';
     },
 
     async startExportProcess(appState) {
@@ -182,12 +238,16 @@ const ExportHandler = {
             appState.exportProgressIndeterminate = true;
             const formatName = appState.exportFormat === 'image/webp' ? 'WebP' : 'PNG';
             appState.statusText = UIText.STATUS.EXPORT_COMPRESSING(formatName);
+            // 最終編碼 Canvas 已包含所需像素，暫時釋放底圖與 history backing store。
+            this._releaseMapLayersForExport(appState);
             await yieldToUI();
 
-            const blob = await new Promise((resolve) => {
-                const quality = appState.exportFormat === 'image/webp' ? parseFloat(appState.exportQuality) : undefined;
-                encodingCanvas.toBlob(resolve, appState.exportFormat, quality);
-            });
+            const quality = appState.exportFormat === 'image/webp' ? parseFloat(appState.exportQuality) : undefined;
+            const blobPromise = this._startCanvasEncoding(encodingCanvas, appState.exportFormat, quality);
+            // 保留畫面上的輸出預覽；只有獨立建立的裁切 Canvas 可在取得
+            // toBlob bitmap snapshot 後立即釋放。
+            if (encodingCanvas !== previewCanvas) this._releaseCanvas(encodingCanvas);
+            const blob = await blobPromise;
 
             if (!blob) throw new Error('Blob creation failed');
 
@@ -204,7 +264,16 @@ const ExportHandler = {
             };
             appState.statusText = UIText.STATUS.EXPORT_DONE;
         } catch (e) {
-            appState.statusText = UIText.STATUS.EXPORT_FAILED(e.message);
+            let restoreError = null;
+            if (appState.exportMapLayersReleased) {
+                const restoration = await this._restoreMapLayers(appState);
+                restoreError = restoration.error;
+                if (restoration.ok) await this.updatePreview(appState);
+            }
+            const message = restoreError
+                ? `${e?.message || e}; restore failed: ${restoreError?.message || restoreError}`
+                : (e?.message || e);
+            appState.statusText = UIText.STATUS.EXPORT_FAILED(message);
         } finally {
             appState.exportProgressIndeterminate = false;
             appState.isExporting = false;
@@ -212,7 +281,7 @@ const ExportHandler = {
         }
     },
 
-    downloadExportedBlob(appState) {
+    async downloadExportedBlob(appState) {
         if (!appState.exportBlob) return;
         const url = URL.createObjectURL(appState.exportBlob);
         const ext = appState.exportFormat === 'image/webp' ? 'webp' : 'png';
@@ -224,7 +293,7 @@ const ExportHandler = {
         } finally {
             // Give the browser one event-loop turn to start consuming the object URL.
             setTimeout(() => URL.revokeObjectURL(url), 0);
-            this.closePreviewModal(appState);
+            await this.closePreviewModal(appState);
         }
     }
 };

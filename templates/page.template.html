@@ -170,11 +170,11 @@
                     <h3>{{ t('page.preview.title') }}</h3>
                     <div class="preview-controls">
                         <label class="map-select">
-                            <input type="checkbox" v-model="exportCropTransparent">
+                            <input type="checkbox" v-model="exportCropTransparent" :disabled="isExporting">
                             <span>{{ t('page.preview.autoCropTransparent') }}</span>
                         </label>
                         <label class="map-select">
-                            <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()">
+                            <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()" :disabled="isExporting">
                             <span>{{ t('page.preview.includeBaseMap') }}</span>
                         </label>
                         <button @click="openPreviewCrop" :disabled="!hasOutput || isExporting || exportBlob">{{ t('page.preview.crop') }}</button>
@@ -227,8 +227,8 @@
                                 <span class="dim-info">{{ previewInfo.width }} x {{ previewInfo.height }}</span>
                              </div>
                              <div class="action-buttons">
-                                <button class="confirm" @click="downloadExportedBlob">{{ t('page.preview.downloadFile') }}</button>
-                                <button @click="exportBlob = null; statusText = ''">{{ t('page.preview.exportAgain') }}</button>
+                                <button class="confirm" @click="downloadExportedBlob" :disabled="isExporting">{{ t('page.preview.downloadFile') }}</button>
+                                <button @click="resetExportResult" :disabled="isExporting">{{ t('page.preview.exportAgain') }}</button>
                              </div>
                         </div>
                     </div>

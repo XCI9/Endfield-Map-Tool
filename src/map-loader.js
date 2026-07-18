@@ -11,6 +11,26 @@ const MapLoader = {
         }
     },
 
+    async restoreMapLayers(appState) {
+        const mapInfo = MAPS[appState.currentMapKey] || MAPS.map02;
+        const img = new Image();
+        const loadPromise = new Promise((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error(
+                UIText.STATUS.BASE_MAP_LOAD_FAILED(appState.currentMapKey, mapInfo.file)
+            ));
+        });
+        img.src = mapInfo.file;
+        await loadPromise;
+        if (img.decode) await img.decode().catch(() => undefined);
+
+        baseMapSize = { width: img.width, height: img.height };
+        CanvasManager.syncBaseCanvasSize();
+        this.drawBaseCanvasFromSource(img);
+        CanvasManager.rebuildHistoryCanvas(appState);
+        CanvasManager.renderView(appState.showOriginalBase);
+    },
+
     async loadBaseMapFromAsset(appState, mapKey) {
         const mapInfo = MAPS[mapKey] || MAPS.map02;
         appState.statusText = UIText.STATUS.BASE_MAP_LOADING(mapKey);
@@ -81,6 +101,7 @@ const MapLoader = {
 
             appState.history = [];
             appState.canUndo = false;
+            appState.exportMapLayersReleased = false;
             CanvasManager.releaseHistoryCanvas();
 
             CanvasManager.syncBaseCanvasSize();

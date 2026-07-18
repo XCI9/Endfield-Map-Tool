@@ -279,6 +279,7 @@ function App() {
         isExporting: false,
         exportProgress: 0,
         exportProgressIndeterminate: false,
+        exportMapLayersReleased: false,
         exportBlob: null,
         exportFormat: 'image/webp',
         exportQuality: 0.95,
@@ -780,10 +781,11 @@ function App() {
 
         // ── Export / Preview ──
         openPreviewModal()          { ExportHandler.openPreviewModal(this); },
-        closePreviewModal()         { ExportHandler.closePreviewModal(this); },
+        async closePreviewModal()   { await ExportHandler.closePreviewModal(this); },
         async updatePreview()       { await ExportHandler.updatePreview(this); },
         async startExportProcess()  { await ExportHandler.startExportProcess(this); },
-        downloadExportedBlob()      { ExportHandler.downloadExportedBlob(this); },
+        async resetExportResult()   { await ExportHandler.resetExportResult(this); },
+        async downloadExportedBlob(){ await ExportHandler.downloadExportedBlob(this); },
 
         // ── View ──
         confirmManualPlacement()    { ManualPlacementHandler.confirm(this); },

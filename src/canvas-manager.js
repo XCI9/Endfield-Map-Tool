@@ -61,6 +61,12 @@ const CanvasManager = {
         historyCanvas.height = 1;
     },
 
+    releaseBaseCanvas() {
+        if (!baseCanvas) return;
+        baseCanvas.width = 1;
+        baseCanvas.height = 1;
+    },
+
     // 將所有已確認圖片預先合成到其聯集矩形，而不是配置完整底圖大小的 Canvas。
     rebuildHistoryCanvas(appState) {
         if (!historyCanvas) return;
