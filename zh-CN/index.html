@@ -152,7 +152,7 @@
         <main class="content">
             <div id="dropZone" class="drop-zone" :class="{ 'is-dragging': isDragging }">
                 <canvas id="baseCanvas" class="offscreen"></canvas>
-                <canvas id="originalBaseCanvas" class="offscreen"></canvas>
+                <canvas id="historyCanvas" class="offscreen"></canvas>
                 <canvas id="outputCanvas"></canvas>
                 
                 <div class="drop-overlay loading-overlay" v-if="isLoadingBaseMap">
@@ -175,11 +175,11 @@
                     <h3>{{ t('page.preview.title') }}</h3>
                     <div class="preview-controls">
                         <label class="map-select">
-                            <input type="checkbox" v-model="exportCropTransparent">
+                            <input type="checkbox" v-model="exportCropTransparent" :disabled="isExporting">
                             <span>{{ t('page.preview.autoCropTransparent') }}</span>
                         </label>
                         <label class="map-select">
-                            <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()">
+                            <input type="checkbox" v-model="previewIncludeBase" @change="onPreviewBaseToggle()" :disabled="isExporting">
                             <span>{{ t('page.preview.includeBaseMap') }}</span>
                         </label>
                         <button @click="openPreviewCrop" :disabled="!hasOutput || isExporting || exportBlob">{{ t('page.preview.crop') }}</button>
@@ -217,9 +217,11 @@
                     <div class="export-status" v-if="isExporting">
                          <span class="status-text">{{ statusText }}</span>
                          <div class="progress-track">
-                             <div class="progress-fill" :style="{ width: exportProgress + '%' }"></div>
+                             <div class="progress-fill"
+                                  :class="{ indeterminate: exportProgressIndeterminate }"
+                                  :style="exportProgressIndeterminate ? {} : { width: exportProgress + '%' }"></div>
                          </div>
-                         <span class="progress-text">{{ exportProgress }}%</span>
+                         <span class="progress-text" v-if="!exportProgressIndeterminate">{{ exportProgress }}%</span>
                     </div>
                     
                     <div class="export-result" v-if="exportBlob">
@@ -230,8 +232,8 @@
                                 <span class="dim-info">{{ previewInfo.width }} x {{ previewInfo.height }}</span>
                              </div>
                              <div class="action-buttons">
-                                <button class="confirm" @click="downloadExportedBlob">{{ t('page.preview.downloadFile') }}</button>
-                                <button @click="exportBlob = null; statusText = ''">{{ t('page.preview.exportAgain') }}</button>
+                                <button class="confirm" @click="downloadExportedBlob" :disabled="isExporting">{{ t('page.preview.downloadFile') }}</button>
+                                <button @click="resetExportResult" :disabled="isExporting">{{ t('page.preview.exportAgain') }}</button>
                              </div>
                         </div>
                     </div>

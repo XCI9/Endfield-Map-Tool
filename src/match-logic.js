@@ -1,4 +1,5 @@
-// Shared matching logic for both Main Thread and Worker
+// Shared template-match implementation retained for main-thread and worker execution.
+// Current automatic placement uses the ORB matcher instead.
 
 (function(global) {
     const MAX_BASE_TRANSPARENT_RATIO = 0.2;
@@ -29,10 +30,8 @@
         let allResults = [];
         let globalBestVal = -1;
 
-        // Pre-extract ROI sub-Mats ONCE before the scale loop.
-        // Previously they were created & deleted O(scales × ROIs) times;
-        // now we pay that cost only O(ROIs) times.
-        let roisWithType = [];
+        // Extract each ROI sub-Mat once and reuse it across all scales.
+        const roisWithType = [];
         if (!roiCandidates || roiCandidates.length === 0) {
             roisWithType.push({ rect: null, mat: searchBase, maskMat: searchBaseMask, offsetX: 0, offsetY: 0 });
         } else {

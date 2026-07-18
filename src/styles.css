@@ -1153,6 +1153,17 @@ body {
     transition: width 0.3s ease;
 }
 
+.export-status .progress-fill.indeterminate {
+    width: 35%;
+    animation: export-progress-indeterminate 1.1s ease-in-out infinite;
+    transition: none;
+}
+
+@keyframes export-progress-indeterminate {
+    from { transform: translateX(-110%); }
+    to { transform: translateX(300%); }
+}
+
 .export-status .progress-text {
     align-self: flex-end;
     font-size: 0.85rem;

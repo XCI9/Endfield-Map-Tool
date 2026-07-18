@@ -278,6 +278,8 @@ function App() {
         isLoadingBaseMap: false,
         isExporting: false,
         exportProgress: 0,
+        exportProgressIndeterminate: false,
+        exportMapLayersReleased: false,
         exportBlob: null,
         exportFormat: 'image/webp',
         exportQuality: 0.95,
@@ -389,7 +391,7 @@ function App() {
         },
 
         init() {
-            // ── Workers ──
+            // ── Retained multithread template-match workers ──
             if (window.Worker && ENABLE_MATCH_WORKERS) {
                 workers.forEach(w => w.terminate());
                 workers = [];
@@ -403,7 +405,7 @@ function App() {
             } else {
                 workers.forEach(w => w.terminate());
                 workers = [];
-                console.log('Worker matching disabled; running on main thread for testing.');
+                console.log('Template-match workers disabled; ORB matching runs on the main thread.');
             }
 
             // ── Canvas references ──
@@ -411,8 +413,8 @@ function App() {
             outputCtx = outputCanvas.getContext('2d');
             baseCanvas = document.getElementById('baseCanvas');
             baseCtx = baseCanvas.getContext('2d');
-            originalBaseCanvas = document.getElementById('originalBaseCanvas');
-            originalBaseCtx = originalBaseCanvas.getContext('2d');
+            historyCanvas = document.getElementById('historyCanvas');
+            historyCtx = historyCanvas.getContext('2d');
             previewCanvas = document.getElementById('previewCanvas');
             previewCtx = previewCanvas.getContext('2d');
             dropZoneEl = document.getElementById('dropZone');
@@ -738,7 +740,6 @@ function App() {
 
         // ── View toggles ──
         onOriginalToggle() {
-            CanvasManager.rebuildCompositeCanvas(this);
             CanvasManager.renderView(this.showOriginalBase);
         },
         onPreviewBaseToggle()       { ExportHandler.updatePreview(this); },
@@ -780,10 +781,11 @@ function App() {
 
         // ── Export / Preview ──
         openPreviewModal()          { ExportHandler.openPreviewModal(this); },
-        closePreviewModal()         { ExportHandler.closePreviewModal(this); },
+        async closePreviewModal()   { await ExportHandler.closePreviewModal(this); },
         async updatePreview()       { await ExportHandler.updatePreview(this); },
         async startExportProcess()  { await ExportHandler.startExportProcess(this); },
-        downloadExportedBlob()      { ExportHandler.downloadExportedBlob(this); },
+        async resetExportResult()   { await ExportHandler.resetExportResult(this); },
+        async downloadExportedBlob(){ await ExportHandler.downloadExportedBlob(this); },
 
         // ── View ──
         confirmManualPlacement()    { ManualPlacementHandler.confirm(this); },

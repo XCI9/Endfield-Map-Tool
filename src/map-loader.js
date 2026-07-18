@@ -4,42 +4,31 @@
 // ─────────────────────────────────────────────
 
 const MapLoader = {
-    drawBaseCanvasesFromSource(sourceCanvas) {
+    drawBaseCanvasFromSource(source) {
         if (baseCanvas && baseCtx) {
             baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
-            baseCtx.drawImage(sourceCanvas, 0, 0, baseCanvas.width, baseCanvas.height);
-        }
-        if (originalBaseCanvas && originalBaseCtx) {
-            originalBaseCtx.clearRect(0, 0, originalBaseCanvas.width, originalBaseCanvas.height);
-            originalBaseCtx.drawImage(sourceCanvas, 0, 0, originalBaseCanvas.width, originalBaseCanvas.height);
+            baseCtx.drawImage(source, 0, 0, baseCanvas.width, baseCanvas.height);
         }
     },
 
-    fillTransparentWithBlack(grayMat, alphaMask) {
-        const grayData = grayMat.data;
-        const alphaData = alphaMask.data;
-        for (let i = 0; i < alphaData.length; i++) {
-            if (alphaData[i] === 0) {
-                grayData[i] = 0;
-            }
-        }
-    },
+    async restoreMapLayers(appState) {
+        const mapInfo = MAPS[appState.currentMapKey] || MAPS.map02;
+        const img = new Image();
+        const loadPromise = new Promise((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error(
+                UIText.STATUS.BASE_MAP_LOAD_FAILED(appState.currentMapKey, mapInfo.file)
+            ));
+        });
+        img.src = mapInfo.file;
+        await loadPromise;
+        if (img.decode) await img.decode().catch(() => undefined);
 
-    processGrayBase(sourceMat, alphaMask = null) {
-        const gray = new cv.Mat();
-        const ownAlphaMask = !alphaMask;
-        const resolvedAlphaMask = alphaMask || extractAlphaMask(sourceMat);
-
-        try {
-            cv.cvtColor(sourceMat, gray, cv.COLOR_RGBA2GRAY);
-            this.fillTransparentWithBlack(gray, resolvedAlphaMask);
-            return gray;
-        } catch (error) {
-            gray.delete();
-            throw new Error(`processGrayBase failed: ${error?.message || error}`);
-        } finally {
-            if (ownAlphaMask) resolvedAlphaMask.delete();
-        }
+        baseMapSize = { width: img.width, height: img.height };
+        CanvasManager.syncBaseCanvasSize();
+        this.drawBaseCanvasFromSource(img);
+        CanvasManager.rebuildHistoryCanvas(appState);
+        CanvasManager.renderView(appState.showOriginalBase);
     },
 
     async loadBaseMapFromAsset(appState, mapKey) {
@@ -69,33 +58,39 @@ const MapLoader = {
 
         let nextBaseAlphaMask = null;
         let alphaMask = null;
+        let workerSourceCanvas = null;
 
         try {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            canvas.getContext('2d').drawImage(img, 0, 0);
+            if (ENABLE_MATCH_WORKERS) {
+                workerSourceCanvas = document.createElement('canvas');
+                workerSourceCanvas.width = img.width;
+                workerSourceCanvas.height = img.height;
+                workerSourceCanvas.getContext('2d').drawImage(img, 0, 0);
+            }
 
             // Yield before heavy sync work so the DOM can reflect isLoadingBaseMap=true
             // (disabled state) before the event loop freezes.
             await yieldToUI();
 
-            let rgbaBaseMat = null;
-            try {
-                rgbaBaseMat = cv.imread(canvas);
-                if (!isMatAvailable(rgbaBaseMat)) {
-                    throw new Error('cv.imread returned an invalid Mat');
-                }
+            // ORB 配對不使用全圖 alpha mask，避免 cv.imread() 為超大底圖配置
+            // RGBA Mat。只有啟用保留的 multithread template-match 路徑時才建立。
+            if (ENABLE_MATCH_WORKERS) {
+                let rgbaBaseMat = null;
+                try {
+                    rgbaBaseMat = cv.imread(workerSourceCanvas);
+                    if (!isMatAvailable(rgbaBaseMat)) {
+                        throw new Error('cv.imread returned an invalid Mat');
+                    }
 
-                alphaMask = extractAlphaMask(rgbaBaseMat);
-                nextBaseAlphaMask = alphaMask;
-                alphaMask = null;
-                // grayBase Mat 已不再需要（ORB 改用 .orbf），僅儲存尺寸
-            } catch (error) {
-                throw new Error(`prepare base mats failed: ${error?.message || error}`);
-            } finally {
-                rgbaBaseMat = safeDeleteMat(rgbaBaseMat);
-                alphaMask = safeDeleteMat(alphaMask);
+                    alphaMask = extractAlphaMask(rgbaBaseMat);
+                    nextBaseAlphaMask = alphaMask;
+                    alphaMask = null;
+                } catch (error) {
+                    throw new Error(`prepare base alpha mask failed: ${error?.message || error}`);
+                } finally {
+                    rgbaBaseMat = safeDeleteMat(rgbaBaseMat);
+                    alphaMask = safeDeleteMat(alphaMask);
+                }
             }
 
             baseAlphaMask = safeDeleteMat(baseAlphaMask);
@@ -104,19 +99,19 @@ const MapLoader = {
             baseAlphaMask = nextBaseAlphaMask;
             nextBaseAlphaMask = null;
 
-            CanvasManager.syncBaseCanvasSizes();
-            this.drawBaseCanvasesFromSource(canvas);
-
             appState.history = [];
             appState.canUndo = false;
+            appState.exportMapLayersReleased = false;
+            CanvasManager.releaseHistoryCanvas();
 
-            CanvasManager.rebuildCompositeCanvas(appState);
+            CanvasManager.syncBaseCanvasSize();
+            this.drawBaseCanvasFromSource(img);
             appState.hasOutput = true;
             CanvasManager.resetView(appState.showOriginalBase);
             CanvasManager.renderView(appState.showOriginalBase);
             ExportHandler.updatePreview(appState);
 
-            // Load ORB fingerprint for the selected map
+            // Load the ORB fingerprint for the selected map.
             orbFingerprint = null;
             if (mapInfo.orbf) {
                 appState.statusText = UIText.STATUS.ORB_LOADING;
@@ -145,6 +140,10 @@ const MapLoader = {
             });
             appState.statusText = UIText.STATUS.BASE_MAP_PROCESS_FAILED;
         } finally {
+            if (workerSourceCanvas) {
+                workerSourceCanvas.width = 1;
+                workerSourceCanvas.height = 1;
+            }
             appState.isLoadingBaseMap = false;
         }
     },
